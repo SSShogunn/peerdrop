@@ -16,6 +16,7 @@ import {
   type QueueItem,
   type ReceivedFile,
   type SignalingMessage,
+  type TextEntry,
   type TransferMeta,
 } from "../types";
 import { PeerContext } from "./peer-context-instance";
@@ -25,6 +26,7 @@ const CHUNK_SIZE = Number(import.meta.env.VITE_CHUNK_SIZE) * 1024 || 16 * 1024;
 const MAX_ICE_RESTART_ATTEMPTS = 3;
 const MAX_WS_RECONNECT_ATTEMPTS = 3;
 const SPEED_SAMPLE_INTERVAL_MS = 250;
+const MAX_TEXT_LENGTH = 10_000;
 
 type SignalingAction =
   | { type: "create_room" }
@@ -185,6 +187,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
   const [errorReason, setErrorReason] = useState<string | null>(null);
   const [receivedFiles, setReceivedFiles] = useState<ReceivedFile[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<IncomingRequest[]>([]);
+  const [messages, setMessages] = useState<TextEntry[]>([]);
 
   const canStreamToDisk =
     typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
@@ -454,6 +457,14 @@ export function PeerProvider({ children }: PeerProviderProps) {
       if (typeof data === "string") {
         const msg: DataChannelMessage = JSON.parse(data);
 
+        if (msg.type === "text") {
+          setMessages((prev) => [
+            ...prev,
+            { id: msg.id, text: msg.text, direction: "received", at: Date.now() },
+          ]);
+          return;
+        }
+
         if (msg.type === "request") {
           setIncomingRequests((prev) => [...prev, { batchId: msg.batchId, files: msg.files }]);
           return;
@@ -564,6 +575,23 @@ export function PeerProvider({ children }: PeerProviderProps) {
     });
   }, []);
 
+  const sendText = useCallback((text: string) => {
+    const trimmed = text.trim().slice(0, MAX_TEXT_LENGTH);
+    if (!trimmed) return;
+
+    const channel = channelRef.current;
+    if (!channel || channel.readyState !== "open") return;
+
+    const id = crypto.randomUUID();
+    try {
+      channel.send(JSON.stringify({ type: "text", id, text: trimmed }));
+    } catch {
+      return;
+    }
+
+    setMessages((prev) => [...prev, { id, text: trimmed, direction: "sent", at: Date.now() }]);
+  }, []);
+
   const chooseSaveFolder = useCallback(async () => {
     if (typeof window.showDirectoryPicker !== "function") return;
     try {
@@ -623,6 +651,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
     setErrorReason(null);
     setReceivedFiles([]);
     setIncomingRequests([]);
+    setMessages([]);
     setDisconnectReason(wasConnected ? "peer_left" : null);
     setStatus("idle");
   };
@@ -999,6 +1028,8 @@ export function PeerProvider({ children }: PeerProviderProps) {
     incomingRequests,
     acceptRequest,
     declineRequest,
+    messages,
+    sendText,
     reset,
     createRoom,
     joinRoom,

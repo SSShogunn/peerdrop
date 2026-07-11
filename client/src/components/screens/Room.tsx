@@ -5,6 +5,7 @@ import FileDropzone from "@/components/FileDropzone";
 import TransferProgress from "@/components/TransferProgress";
 import ReceiverPanel from "@/components/ReceiverPanel";
 import IncomingRequestSheet from "@/components/IncomingRequestSheet";
+import TextShare from "@/components/TextShare";
 
 export default function Room() {
   const { sendFileName, recvFileName, transferError, connectionType } = usePeer();
@@ -32,6 +33,10 @@ export default function Room() {
       </div>
 
       {transferError && <p className="text-xs text-destructive">{transferError}</p>}
+
+      <TextShare />
+
+      <div className="h-px bg-border" />
 
       <FileDropzone />
 

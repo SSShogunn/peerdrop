@@ -73,6 +73,12 @@ export interface TransferCancel {
     id: string
 }
 
+export interface TextMessage {
+    type: "text"
+    id: string
+    text: string
+}
+
 export type DataChannelMessage =
     | TransferRequest
     | TransferAccept
@@ -81,6 +87,7 @@ export type DataChannelMessage =
     | TransferComplete
     | TransferAck
     | TransferCancel
+    | TextMessage
 
 export type QueueItemStatus =
     | "pending"
@@ -112,6 +119,13 @@ export interface IncomingRequest {
     files: FileSummary[]
 }
 
+export interface TextEntry {
+    id: string
+    text: string
+    direction: "sent" | "received"
+    at: number
+}
+
 export interface PeerContextValue {
     status: ConnectionStatus
     roomCode: string
@@ -139,6 +153,9 @@ export interface PeerContextValue {
     incomingRequests: IncomingRequest[]
     acceptRequest: (batchId: string) => void
     declineRequest: (batchId: string) => void
+
+    messages: TextEntry[]
+    sendText: (text: string) => void
 
     reset: () => void
     createRoom: () => void
