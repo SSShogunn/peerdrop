@@ -1,0 +1,31 @@
+# Keep the build context small and avoid leaking local state / secrets into
+# image builds. The build context is the repo root (docker-compose `context: .`).
+
+# Dependencies (reinstalled inside the image from lockfiles)
+**/node_modules
+**/.venv
+**/__pycache__
+**/*.py[oc]
+
+# Build output
+client/dist
+client/dist-ssr
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+client/.env
+client/.env.*
+!client/.env.example
+
+# VCS / editor / OS
+.git
+.gitignore
+**/.DS_Store
+.vscode
+.idea
+
+# Docs & compose (not needed inside images)
+ENHANCEMENTS.md
+docker-compose*.yml

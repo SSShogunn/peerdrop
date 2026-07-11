@@ -24,6 +24,7 @@ export type SignalingMessage =
 export type PeerRole = "offerer" | "answerer" | null
 
 export interface TransferMeta {
+    type: "meta"
     id: string
     fileName: string
     fileSize: number
@@ -32,7 +33,30 @@ export interface TransferMeta {
     isLastInQueue: boolean
 }
 
-export type QueueItemStatus = "queued" | "sending" | "done" | "error"
+export interface TransferComplete {
+    type: "complete"
+    id: string
+    checksum: string
+}
+
+export interface TransferAck {
+    type: "ack"
+    id: string
+    ok: boolean
+}
+
+export interface TransferCancel {
+    type: "cancel"
+    id: string
+}
+
+export type DataChannelMessage =
+    | TransferMeta
+    | TransferComplete
+    | TransferAck
+    | TransferCancel
+
+export type QueueItemStatus = "queued" | "sending" | "done" | "error" | "cancelled"
 
 export interface QueueItem {
     id: string
@@ -51,9 +75,14 @@ export interface PeerContextValue {
     isPaused: boolean
     currentFileName: string | null
     queue: QueueItem[]
+    canStreamToDisk: boolean
+    saveFolder: string | null
+    transferError: string | null
     createRoom: () => void
     joinRoom: (code: string) => void
     queueFiles: (files: File[]) => void
     pauseTransfer: () => void
     resumeTransfer: () => void
+    cancelTransfer: (id: string) => void
+    chooseSaveFolder: () => Promise<void>
 }

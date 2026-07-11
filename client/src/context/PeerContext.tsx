@@ -5,8 +5,10 @@ import {
   useEffect,
   type ReactNode,
 } from "react";
+import { createSHA256, type IHasher } from "hash-wasm";
 import {
   type ConnectionStatus,
+  type DataChannelMessage,
   type PeerContextValue,
   type PeerRole,
   type QueueItem,
@@ -18,7 +20,12 @@ import { PeerContext } from "./peer-context-instance";
 const SIGNALING_SERVER = import.meta.env.VITE_SIGNALING_SERVER;
 const CHUNK_SIZE = Number(import.meta.env.VITE_CHUNK_SIZE) * 1024 || 16 * 1024;
 const MAX_ICE_RESTART_ATTEMPTS = 3;
+const MAX_WS_RECONNECT_ATTEMPTS = 3;
 const SPEED_SAMPLE_INTERVAL_MS = 250;
+
+type SignalingAction =
+  | { type: "create_room" }
+  | { type: "join_room"; code: string };
 
 function buildIceServers(): RTCIceServer[] {
   const servers: RTCIceServer[] = [];
@@ -45,19 +52,27 @@ function buildIceServers(): RTCIceServer[] {
 
 const ICE_SERVERS = buildIceServers();
 
+function safeFileName(name: string): string {
+  return name.replace(/[/\\]/g, "_").replace(/^\.+/, "_") || "download";
+}
+
+const noop = () => {};
+
 interface PeerProviderProps {
   children: ReactNode;
 }
 
 export function PeerProvider({ children }: PeerProviderProps) {
-  // -- refs (connections, never trigger re-render) --
   const wsRef = useRef<WebSocket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<RTCDataChannel | null>(null);
   const roleRef = useRef<PeerRole>(null);
   const iceRestartAttemptsRef = useRef(0);
 
-  // -- file transfer refs (mutable, no re-render needed) --
+  const lastActionRef = useRef<SignalingAction | null>(null);
+  const intentionalCloseRef = useRef(false);
+  const wsReconnectAttemptsRef = useRef(0);
+
   const incomingChunksRef = useRef<ArrayBuffer[]>([]);
   const incomingMetaRef = useRef<TransferMeta | null>(null);
   const receivedChunksRef = useRef<number>(0);
@@ -65,15 +80,19 @@ export function PeerProvider({ children }: PeerProviderProps) {
     time: 0,
     bytes: 0,
   });
+  const recvHasherRef = useRef<IHasher | null>(null);
+  const recvModeRef = useRef<"stream" | "memory">("memory");
+  const writableRef = useRef<FileSystemWritableFileStream | null>(null);
+  const dirHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
+  const recvChainRef = useRef<Promise<void>>(Promise.resolve());
 
-  // -- send queue refs --
   const queueRef = useRef<QueueItem[]>([]);
   const filesByIdRef = useRef<Map<string, File>>(new Map());
   const processingRef = useRef(false);
   const pausedRef = useRef(false);
   const resumeFnRef = useRef<(() => void) | null>(null);
+  const cancelledRef = useRef<Set<string>>(new Set());
 
-  // -- state (drives UI) --
   const [status, setStatus] = useState<ConnectionStatus>("idle");
   const [roomCode, setRoomCode] = useState<string>("");
   const [role, setRole] = useState<PeerRole>(null);
@@ -82,6 +101,11 @@ export function PeerProvider({ children }: PeerProviderProps) {
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [currentFileName, setCurrentFileName] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [saveFolder, setSaveFolder] = useState<string | null>(null);
+  const [transferError, setTransferError] = useState<string | null>(null);
+
+  const canStreamToDisk =
+    typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
 
   const startWebRTCRef = useRef<() => Promise<void>>(null!);
   const handleOfferRef = useRef<(sdp: string) => Promise<void>>(null!);
@@ -89,115 +113,186 @@ export function PeerProvider({ children }: PeerProviderProps) {
   const setupDataChannelRef = useRef<(channel: RTCDataChannel) => void>(null!);
   const attemptIceRestartRef = useRef<() => Promise<void>>(null!);
   const processQueueRef = useRef<() => void>(null!);
+  const openSocketRef = useRef<(action: SignalingAction) => void>(null!);
 
   const syncQueue = () => setQueue([...queueRef.current]);
 
-  const createRoom = useCallback(() => {
-    setStatus("connecting");
+  const handleSignalingMessage = async (message: SignalingMessage) => {
+    switch (message.type) {
+      case "room_created": {
+        setRoomCode(message.code);
+        setStatus("waiting_for_peer");
+        break;
+      }
+
+      case "room_joined": {
+        roleRef.current = "answerer";
+        setRole("answerer");
+        setStatus("waiting_for_peer");
+        break;
+      }
+
+      case "peer_joined": {
+        roleRef.current = "offerer";
+        setRole("offerer");
+        setStatus("peer_joined");
+        await startWebRTCRef.current();
+        break;
+      }
+
+      case "offer": {
+        await handleOfferRef.current(message.sdp);
+        break;
+      }
+
+      case "answer": {
+        if (!pcRef.current) break;
+        await pcRef.current.setRemoteDescription(
+          new RTCSessionDescription({ type: "answer", sdp: message.sdp }),
+        );
+        break;
+      }
+
+      case "ice": {
+        if (!pcRef.current) break;
+        await pcRef.current.addIceCandidate(
+          new RTCIceCandidate(message.candidate),
+        );
+        break;
+      }
+
+      case "peer_disconnected": {
+        handlePeerDisconnectRef.current();
+        break;
+      }
+
+      case "error": {
+        console.error("Signaling error:", message.message);
+        setStatus("error");
+        break;
+      }
+    }
+  };
+
+  const handleSocketClose = () => {
+    if (intentionalCloseRef.current) {
+      intentionalCloseRef.current = false;
+      return;
+    }
+
+    const channelOpen = channelRef.current?.readyState === "open";
+
+    if (wsReconnectAttemptsRef.current >= MAX_WS_RECONNECT_ATTEMPTS || !lastActionRef.current) {
+      if (!channelOpen) handlePeerDisconnectRef.current();
+      return;
+    }
+
+    wsReconnectAttemptsRef.current += 1;
+    if (!channelOpen) setStatus("reconnecting");
+
+    const backoff = 500 * 2 ** (wsReconnectAttemptsRef.current - 1);
+    setTimeout(() => {
+      if (lastActionRef.current) openSocketRef.current(lastActionRef.current);
+    }, backoff);
+  };
+
+  const openSocket = (action: SignalingAction) => {
+    lastActionRef.current = action;
 
     const ws = new WebSocket(SIGNALING_SERVER);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "create_room" }));
+      wsReconnectAttemptsRef.current = 0;
+      ws.send(JSON.stringify(action));
     };
 
     ws.onmessage = async (event) => {
       const message: SignalingMessage = JSON.parse(event.data);
-
-      switch (message.type) {
-        case "room_created": {
-          setRoomCode(message.code);
-          setStatus("waiting_for_peer");
-          break;
-        }
-
-        case "peer_joined": {
-          roleRef.current = "offerer";
-          setRole("offerer");
-          setStatus("peer_joined");
-          await startWebRTCRef.current();
-          break;
-        }
-
-        case "answer": {
-          if (!pcRef.current) break;
-          await pcRef.current.setRemoteDescription(
-            new RTCSessionDescription({ type: "answer", sdp: message.sdp }),
-          );
-          break;
-        }
-
-        case "ice": {
-          if (!pcRef.current) break;
-          await pcRef.current.addIceCandidate(
-            new RTCIceCandidate(message.candidate),
-          );
-          break;
-        }
-
-        case "peer_disconnected": {
-          handlePeerDisconnectRef.current();
-          break;
-        }
-
-        case "error": {
-          console.error("Signaling error:", message.message);
-          setStatus("error");
-          break;
-        }
-      }
+      await handleSignalingMessage(message);
     };
 
     ws.onclose = () => {
-      setStatus("idle");
+      handleSocketClose();
     };
 
-    ws.onerror = () => {
-      setStatus("error");
-    };
+    ws.onerror = () => {};
+  };
+
+  const createRoom = useCallback(() => {
+    setTransferError(null);
+    setStatus("connecting");
+    wsReconnectAttemptsRef.current = 0;
+    openSocketRef.current({ type: "create_room" });
+  }, []);
+
+  const joinRoom = useCallback((code: string) => {
+    setTransferError(null);
+    setStatus("connecting");
+    wsReconnectAttemptsRef.current = 0;
+    openSocketRef.current({ type: "join_room", code: code.toUpperCase() });
   }, []);
 
   const setupDataChannel = (channel: RTCDataChannel) => {
     channel.onopen = () => {
-      console.log("Data channel open");
       setStatus("p2p_connected");
     };
 
     channel.onclose = () => {
-      console.log("Data channel closed");
       handlePeerDisconnectRef.current();
     };
 
-    channel.onmessage = (event) => {
-      const data = event.data;
+    const handleMeta = async (meta: TransferMeta) => {
+      incomingMetaRef.current = meta;
+      receivedChunksRef.current = 0;
+      recvSpeedSampleRef.current = { time: performance.now(), bytes: 0 };
+      setTransferError(null);
+      setProgress(0);
+      setCurrentFileName(meta.fileName);
+      setStatus("transferring");
 
-      // first message is always metadata (a JSON string)
-      if (typeof data === "string") {
-        const meta: TransferMeta = JSON.parse(data);
-        incomingMetaRef.current = meta;
-        incomingChunksRef.current = [];
-        receivedChunksRef.current = 0;
-        recvSpeedSampleRef.current = { time: performance.now(), bytes: 0 };
-        setProgress(0);
-        setCurrentFileName(meta.fileName);
-        setStatus("transferring");
-        return;
+      if (!recvHasherRef.current) {
+        recvHasherRef.current = await createSHA256();
+      }
+      recvHasherRef.current.init();
+
+      if (dirHandleRef.current) {
+        try {
+          const fileHandle = await dirHandleRef.current.getFileHandle(
+            safeFileName(meta.fileName),
+            { create: true },
+          );
+          writableRef.current = await fileHandle.createWritable();
+          recvModeRef.current = "stream";
+          return;
+        } catch (err) {
+          console.error("Falling back to in-memory receive:", err);
+          writableRef.current = null;
+        }
+      }
+      recvModeRef.current = "memory";
+      incomingChunksRef.current = [];
+    };
+
+    const handleChunk = async (buffer: ArrayBuffer) => {
+      const meta = incomingMetaRef.current;
+      if (!meta) return;
+
+      recvHasherRef.current?.update(new Uint8Array(buffer));
+
+      if (recvModeRef.current === "stream" && writableRef.current) {
+        await writableRef.current.write(buffer);
+      } else {
+        incomingChunksRef.current.push(buffer);
       }
 
-      // subsequent messages are ArrayBuffer chunks
-      const chunk = data as ArrayBuffer;
-      incomingChunksRef.current.push(chunk);
       receivedChunksRef.current += 1;
-
-      const meta = incomingMetaRef.current!;
-      const pct = Math.round(
-        (receivedChunksRef.current / meta.totalChunks) * 100,
+      setProgress(
+        Math.round((receivedChunksRef.current / meta.totalChunks) * 100),
       );
-      setProgress(pct);
 
       const sample = recvSpeedSampleRef.current;
-      sample.bytes += chunk.byteLength;
+      sample.bytes += buffer.byteLength;
       const now = performance.now();
       const elapsed = now - sample.time;
       if (elapsed >= SPEED_SAMPLE_INTERVAL_MS) {
@@ -205,33 +300,126 @@ export function PeerProvider({ children }: PeerProviderProps) {
         sample.time = now;
         sample.bytes = 0;
       }
+    };
 
-      // all chunks received — reassemble and trigger download
-      if (receivedChunksRef.current === meta.totalChunks) {
-        const blob = new Blob(incomingChunksRef.current, {
-          type: meta.fileType,
-        });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = meta.fileName;
-        a.click();
-        URL.revokeObjectURL(url);
+    const finalizeReceive = async (checksum: string) => {
+      const meta = incomingMetaRef.current;
+      if (!meta) return;
 
-        // reset
-        incomingChunksRef.current = [];
-        incomingMetaRef.current = null;
-        receivedChunksRef.current = 0;
-        setCurrentFileName(null);
+      const digest = recvHasherRef.current?.digest("hex") ?? "";
+      const ok = digest === checksum;
 
-        if (meta.isLastInQueue) {
-          setStatus("done");
-          setProgress(100);
-          setSpeed(0);
+      if (ok) {
+        if (recvModeRef.current === "stream" && writableRef.current) {
+          await writableRef.current.close();
+        } else {
+          const blob = new Blob(incomingChunksRef.current, {
+            type: meta.fileType,
+          });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = meta.fileName;
+          a.click();
+          URL.revokeObjectURL(url);
         }
+      } else {
+        if (recvModeRef.current === "stream" && writableRef.current) {
+          try {
+            await writableRef.current.abort();
+          } catch {
+            noop();
+          }
+        }
+        setTransferError(
+          `"${meta.fileName}" failed its integrity check and was discarded. Ask the sender to try again.`,
+        );
+      }
+
+      try {
+        channel.send(JSON.stringify({ type: "ack", id: meta.id, ok }));
+      } catch {
+        noop();
+      }
+
+      writableRef.current = null;
+      incomingChunksRef.current = [];
+      incomingMetaRef.current = null;
+      receivedChunksRef.current = 0;
+      setCurrentFileName(null);
+
+      if (ok && meta.isLastInQueue) {
+        setStatus("done");
+        setProgress(100);
+        setSpeed(0);
+      } else if (!ok) {
+        setStatus("p2p_connected");
+        setSpeed(0);
       }
     };
+
+    const handleData = async (data: string | ArrayBuffer) => {
+      if (typeof data === "string") {
+        const msg: DataChannelMessage = JSON.parse(data);
+        if (msg.type === "meta") {
+          await handleMeta(msg);
+        } else if (msg.type === "complete") {
+          await finalizeReceive(msg.checksum);
+        } else if (msg.type === "cancel") {
+          const name = incomingMetaRef.current?.fileName;
+          if (writableRef.current) {
+            try {
+              await writableRef.current.abort();
+            } catch {
+              noop();
+            }
+            writableRef.current = null;
+          }
+          incomingChunksRef.current = [];
+          incomingMetaRef.current = null;
+          receivedChunksRef.current = 0;
+          setCurrentFileName(null);
+          setProgress(0);
+          setSpeed(0);
+          setStatus("p2p_connected");
+          setTransferError(
+            name
+              ? `The sender cancelled "${name}".`
+              : "The sender cancelled the transfer.",
+          );
+        } else if (msg.type === "ack") {
+          const item = queueRef.current.find((i) => i.id === msg.id);
+          if (item && !msg.ok) {
+            item.status = "error";
+            syncQueue();
+            setTransferError(
+              `The receiver couldn't verify "${item.fileName}". It may be corrupted — try sending it again.`,
+            );
+          }
+        }
+        return;
+      }
+      await handleChunk(data);
+    };
+
+    channel.onmessage = (event) => {
+      const data = event.data as string | ArrayBuffer;
+      recvChainRef.current = recvChainRef.current
+        .then(() => handleData(data))
+        .catch((err) => console.error("Receive error:", err));
+    };
   };
+
+  const chooseSaveFolder = useCallback(async () => {
+    if (typeof window.showDirectoryPicker !== "function") return;
+    try {
+      const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+      dirHandleRef.current = handle;
+      setSaveFolder(handle.name);
+    } catch {
+      noop();
+    }
+  }, []);
 
   const handlePeerDisconnect = () => {
     pcRef.current?.close();
@@ -239,16 +427,30 @@ export function PeerProvider({ children }: PeerProviderProps) {
     channelRef.current = null;
     roleRef.current = null;
     iceRestartAttemptsRef.current = 0;
+
+    if (writableRef.current) {
+      writableRef.current.abort().catch(noop);
+      writableRef.current = null;
+    }
     incomingChunksRef.current = [];
     incomingMetaRef.current = null;
     receivedChunksRef.current = 0;
+    recvModeRef.current = "memory";
+    recvChainRef.current = Promise.resolve();
+
     queueRef.current = [];
     filesByIdRef.current.clear();
     processingRef.current = false;
     pausedRef.current = false;
     resumeFnRef.current = null;
+    cancelledRef.current.clear();
+
+    intentionalCloseRef.current = true;
+    lastActionRef.current = null;
+    wsReconnectAttemptsRef.current = 0;
     wsRef.current?.close();
     wsRef.current = null;
+
     setRole(null);
     setRoomCode("");
     setProgress(0);
@@ -256,10 +458,11 @@ export function PeerProvider({ children }: PeerProviderProps) {
     setIsPaused(false);
     setCurrentFileName(null);
     setQueue([]);
+    setTransferError(null);
     setStatus("idle");
   };
 
-  const processQueue = () => {
+  const processQueue = async () => {
     if (processingRef.current || pausedRef.current) return;
 
     const channel = channelRef.current;
@@ -284,6 +487,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
     ).length;
 
     const meta: TransferMeta = {
+      type: "meta",
       id: next.id,
       fileName: file.name,
       fileSize: file.size,
@@ -293,11 +497,32 @@ export function PeerProvider({ children }: PeerProviderProps) {
     };
     channel.send(JSON.stringify(meta));
 
+    const hasher = await createSHA256();
+    hasher.init();
+
     const speedSample = { time: performance.now(), bytes: 0 };
     let offset = 0;
     let chunkIndex = 0;
 
+    const advance = () => {
+      processingRef.current = false;
+      setCurrentFileName(null);
+      const hasMore = queueRef.current.some((item) => item.status === "queued");
+      if (hasMore) {
+        processQueueRef.current();
+      } else {
+        setSpeed(0);
+      }
+    };
+
     const finishFile = () => {
+      channel.send(
+        JSON.stringify({
+          type: "complete",
+          id: next.id,
+          checksum: hasher.digest("hex"),
+        }),
+      );
       next.status = "done";
       syncQueue();
       processingRef.current = false;
@@ -312,7 +537,27 @@ export function PeerProvider({ children }: PeerProviderProps) {
       }
     };
 
+    const finishCancel = () => {
+      try {
+        channel.send(JSON.stringify({ type: "cancel", id: next.id }));
+      } catch {
+        noop();
+      }
+      cancelledRef.current.delete(next.id);
+      filesByIdRef.current.delete(next.id);
+      next.status = "cancelled";
+      syncQueue();
+      const hadMore = queueRef.current.some((item) => item.status === "queued");
+      advance();
+      if (!hadMore) setStatus("p2p_connected");
+    };
+
     const sendNextChunk = () => {
+      if (cancelledRef.current.has(next.id)) {
+        finishCancel();
+        return;
+      }
+
       if (pausedRef.current) {
         resumeFnRef.current = sendNextChunk;
         return;
@@ -329,6 +574,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
       reader.onload = () => {
         const buffer = reader.result as ArrayBuffer;
         channel.send(buffer);
+        hasher.update(new Uint8Array(buffer));
 
         chunkIndex += 1;
         offset += CHUNK_SIZE;
@@ -345,7 +591,6 @@ export function PeerProvider({ children }: PeerProviderProps) {
         }
 
         if (offset < file.size) {
-          // check buffer before sending next chunk
           if (channel.bufferedAmount > CHUNK_SIZE * 8) {
             channel.onbufferedamountlow = () => {
               channel.onbufferedamountlow = null;
@@ -379,6 +624,26 @@ export function PeerProvider({ children }: PeerProviderProps) {
     queueRef.current = [...queueRef.current, ...items];
     syncQueue();
     processQueueRef.current();
+  }, []);
+
+  const cancelTransfer = useCallback((id: string) => {
+    const item = queueRef.current.find((i) => i.id === id);
+    if (!item) return;
+
+    if (item.status === "sending") {
+      cancelledRef.current.add(id);
+      if (pausedRef.current) {
+        pausedRef.current = false;
+        setIsPaused(false);
+        const fn = resumeFnRef.current;
+        resumeFnRef.current = null;
+        fn?.();
+      }
+    } else if (item.status === "queued") {
+      item.status = "cancelled";
+      filesByIdRef.current.delete(id);
+      syncQueue();
+    }
   }, []);
 
   const pauseTransfer = useCallback(() => {
@@ -416,8 +681,6 @@ export function PeerProvider({ children }: PeerProviderProps) {
   };
 
   const attemptIceRestart = async () => {
-    // only the original offerer renegotiates; the answerer just waits
-    // for a fresh offer to arrive over the still-open signaling socket.
     if (roleRef.current !== "offerer") return;
 
     if (
@@ -446,13 +709,11 @@ export function PeerProvider({ children }: PeerProviderProps) {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     pcRef.current = pc;
 
-    // create data channel — only offerer does this
     const channel = pc.createDataChannel("fileTransfer", { ordered: true });
     channelRef.current = channel;
     channel.binaryType = "arraybuffer";
     setupDataChannelRef.current(channel);
 
-    // send ICE candidates to other peer as they are discovered
     pc.onicecandidate = (event) => {
       if (!event.candidate) return;
       wsRef.current?.send(
@@ -465,7 +726,6 @@ export function PeerProvider({ children }: PeerProviderProps) {
 
     pc.onconnectionstatechange = handleConnectionStateChange(pc);
 
-    // create offer and send it
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
@@ -478,15 +738,12 @@ export function PeerProvider({ children }: PeerProviderProps) {
   };
 
   const handleOffer = async (sdp: string) => {
-    // a peer connection may already exist if this offer is an ICE restart
-    // (renegotiation) rather than the very first offer in the session.
     let pc = pcRef.current;
 
     if (!pc) {
       pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
       pcRef.current = pc;
 
-      // answerer receives data channel — never creates one
       pc.ondatachannel = (event) => {
         const channel = event.channel;
         channelRef.current = channel;
@@ -522,62 +779,6 @@ export function PeerProvider({ children }: PeerProviderProps) {
     );
   };
 
-  const joinRoom = useCallback((code: string) => {
-    setStatus("connecting");
-
-    const ws = new WebSocket(SIGNALING_SERVER);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "join_room", code: code.toUpperCase() }));
-    };
-
-    ws.onmessage = async (event) => {
-      const message: SignalingMessage = JSON.parse(event.data);
-
-      switch (message.type) {
-        case "room_joined": {
-          roleRef.current = "answerer";
-          setRole("answerer");
-          setStatus("waiting_for_peer");
-          break;
-        }
-
-        case "offer": {
-          await handleOfferRef.current(message.sdp);
-          break;
-        }
-
-        case "ice": {
-          if (!pcRef.current) break;
-          await pcRef.current.addIceCandidate(
-            new RTCIceCandidate(message.candidate),
-          );
-          break;
-        }
-
-        case "peer_disconnected": {
-          handlePeerDisconnectRef.current();
-          break;
-        }
-
-        case "error": {
-          console.error("Signaling error:", message.message);
-          setStatus("error");
-          break;
-        }
-      }
-    };
-
-    ws.onclose = () => {
-      setStatus("idle");
-    };
-
-    ws.onerror = () => {
-      setStatus("error");
-    };
-  }, []);
-
   useEffect(() => {
     setupDataChannelRef.current = setupDataChannel;
     handlePeerDisconnectRef.current = handlePeerDisconnect;
@@ -585,6 +786,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
     handleOfferRef.current = handleOffer;
     attemptIceRestartRef.current = attemptIceRestart;
     processQueueRef.current = processQueue;
+    openSocketRef.current = openSocket;
   });
 
   const value: PeerContextValue = {
@@ -596,11 +798,16 @@ export function PeerProvider({ children }: PeerProviderProps) {
     isPaused,
     currentFileName,
     queue,
+    canStreamToDisk,
+    saveFolder,
+    transferError,
     createRoom,
     joinRoom,
     queueFiles,
     pauseTransfer,
     resumeTransfer,
+    cancelTransfer,
+    chooseSaveFolder,
   };
 
   return <PeerContext.Provider value={value}>{children}</PeerContext.Provider>;

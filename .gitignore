@@ -13,6 +13,7 @@ node_modules/
 dist/
 dist-ssr/
 *.local
+.pnpm-store/
 
 # Logs
 logs/
@@ -41,3 +42,6 @@ pnpm-debug.log*
 # Lock files (keep these — remove if you prefer not to commit them)
 # uv.lock
 # pnpm-lock.yaml
+
+# Local planning docs
+ENHANCEMENTS.md

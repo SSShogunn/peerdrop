@@ -1,10 +1,11 @@
 import { useState, useRef, type DragEvent } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { X } from "lucide-react";
 import { usePeer } from "../context/usePeer";
 import { formatBytes, getFileIcon } from "../lib/file";
 
 export default function FileDropzone() {
-  const { queueFiles, queue } = usePeer();
+  const { queueFiles, queue, cancelTransfer } = usePeer();
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -106,11 +107,24 @@ export default function FileDropzone() {
                         ? "bg-white/15 text-white"
                         : item.status === "error"
                           ? "bg-red-500/15 text-red-400"
-                          : "bg-white/5 text-neutral-400"
+                          : item.status === "cancelled"
+                            ? "bg-neutral-500/15 text-neutral-400"
+                            : "bg-white/5 text-neutral-400"
                   }`}
                 >
                   {item.status}
                 </motion.span>
+                {(item.status === "queued" || item.status === "sending") && (
+                  <motion.button
+                    onClick={() => cancelTransfer(item.id)}
+                    whileHover={{ backgroundColor: "rgba(239,68,68,0.15)" }}
+                    whileTap={{ scale: 0.9 }}
+                    aria-label={`Cancel ${item.fileName}`}
+                    className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-neutral-400 hover:text-red-300"
+                  >
+                    <X className="h-4 w-4" />
+                  </motion.button>
+                )}
               </motion.li>
             ))}
           </AnimatePresence>

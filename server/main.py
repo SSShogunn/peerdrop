@@ -1,5 +1,8 @@
+import asyncio
+import contextlib
 import json
 import logging
+import os
 import random
 import string
 import time
@@ -7,6 +10,7 @@ import time
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocketDisconnect
+from starlette.websockets import WebSocketState
 
 
 class JsonFormatter(logging.Formatter):
@@ -37,20 +41,35 @@ def log_event(event: str, **fields) -> None:
     logger.info(event, extra={"fields": fields})
 
 
-START_TIME = time.time()
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
 
-app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+def _env_list(name: str, default: str) -> list[str]:
+    return [item.strip() for item in os.environ.get(name, default).split(",") if item.strip()]
+
+
+ALLOWED_ORIGINS = _env_list(
+    "ALLOWED_ORIGINS",
+    "https://peerdrop.sshogunn.org,http://localhost:5173,http://localhost:20015",
 )
+MAX_ROOMS = _env_int("MAX_ROOMS", 500)
+RATE_LIMIT_MAX = _env_int("RATE_LIMIT_MAX", 30)
+RATE_LIMIT_WINDOW = _env_int("RATE_LIMIT_WINDOW", 60)
+ROOM_TTL_SECONDS = _env_int("ROOM_TTL_SECONDS", 600)
+CLEANUP_INTERVAL = _env_int("ROOM_CLEANUP_INTERVAL", 60)
+
+
+START_TIME = time.time()
 
 rooms: dict = {}
 
 peer_room: dict = {}
+
+rate_limits: dict[str, list[float]] = {}
 
 
 def generate_room_code(length: int = 4) -> str:
@@ -67,9 +86,32 @@ def get_other_peer(room: dict, sender: WebSocket):
     return room["peer_a"]
 
 
+def _is_disconnected(ws: WebSocket | None) -> bool:
+    return ws is None or ws.client_state == WebSocketState.DISCONNECTED
+
+
+def check_rate_limit(ip: str) -> bool:
+    now = time.time()
+    cutoff = now - RATE_LIMIT_WINDOW
+    window = rate_limits.setdefault(ip, [])
+    while window and window[0] < cutoff:
+        window.pop(0)
+    if len(window) >= RATE_LIMIT_MAX:
+        return False
+    window.append(now)
+    return True
+
+
 async def handle_create_room(websocket: WebSocket):
+    if len(rooms) >= MAX_ROOMS:
+        await websocket.send_text(
+            json.dumps({"type": "error", "message": "server_busy"})
+        )
+        log_event("create_room_rejected", reason="max_rooms", active_rooms=len(rooms))
+        return
+
     code = generate_room_code()
-    rooms[code] = {"peer_a": websocket, "peer_b": None}
+    rooms[code] = {"peer_a": websocket, "peer_b": None, "created_at": time.time()}
     peer_room[websocket] = code
     await websocket.send_text(json.dumps({"type": "room_created", "code": code}))
     log_event("room_created", code=code)
@@ -144,16 +186,91 @@ async def handle_disconnect(websocket: WebSocket):
     log_event("room_closed", code=code)
 
 
+async def _reap_room(code: str, room: dict, reason: str) -> None:
+    peer_a = room.get("peer_a")
+    peer_b = room.get("peer_b")
+
+    if peer_a is not None and not _is_disconnected(peer_a):
+        with contextlib.suppress(Exception):
+            await peer_a.send_text(
+                json.dumps({"type": "error", "message": "room_expired"})
+            )
+            await peer_a.close()
+
+    for peer in (peer_a, peer_b):
+        if peer is not None:
+            peer_room.pop(peer, None)
+
+    rooms.pop(code, None)
+    log_event("room_reaped", code=code, reason=reason)
+
+
+async def cleanup_rooms() -> None:
+    while True:
+        await asyncio.sleep(CLEANUP_INTERVAL)
+        now = time.time()
+
+        for code, room in list(rooms.items()):
+            age = now - room.get("created_at", now)
+            peer_a = room.get("peer_a")
+            peer_b = room.get("peer_b")
+
+            if peer_b is None and age > ROOM_TTL_SECONDS:
+                await _reap_room(code, room, reason="ttl_no_peer")
+            elif _is_disconnected(peer_a) and _is_disconnected(peer_b):
+                await _reap_room(code, room, reason="both_closed")
+
+        cutoff = now - RATE_LIMIT_WINDOW
+        for ip in list(rate_limits.keys()):
+            window = rate_limits[ip]
+            while window and window[0] < cutoff:
+                window.pop(0)
+            if not window:
+                del rate_limits[ip]
+
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(cleanup_rooms())
+    log_event("startup", max_rooms=MAX_ROOMS, room_ttl_seconds=ROOM_TTL_SECONDS)
+    try:
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     log_event("client_connected")
+
+    ip = websocket.client.host if websocket.client else "unknown"
 
     try:
         while True:
             raw = await websocket.receive_text()
             message = json.loads(raw)
             msg_type = message.get("type")
+
+            if msg_type in ("create_room", "join_room"):
+                if not check_rate_limit(ip):
+                    await websocket.send_text(
+                        json.dumps({"type": "error", "message": "rate_limited"})
+                    )
+                    log_event("rate_limited", ip=ip, msg_type=msg_type)
+                    continue
 
             if msg_type == "create_room":
                 await handle_create_room(websocket)

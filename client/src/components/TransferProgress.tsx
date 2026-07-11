@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
-import { Pause, Play } from "lucide-react";
+import { Pause, Play, X } from "lucide-react";
 import { usePeer } from "../context/usePeer";
 import { formatSpeed } from "../lib/file";
 
@@ -10,9 +10,13 @@ export default function TransferProgress() {
     speed,
     currentFileName,
     isPaused,
+    queue,
     pauseTransfer,
     resumeTransfer,
+    cancelTransfer,
   } = usePeer();
+
+  const sendingId = queue.find((item) => item.status === "sending")?.id;
 
   return (
     <motion.div
@@ -40,38 +44,50 @@ export default function TransferProgress() {
       </div>
 
       {role === "offerer" && (
-        <motion.button
-          onClick={isPaused ? resumeTransfer : pauseTransfer}
-          whileHover={{ backgroundColor: "rgba(255,255,255,0.1)" }}
-          whileTap={{ scale: 0.97 }}
-          className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-white"
-        >
-          <AnimatePresence mode="wait" initial={false}>
-            {isPaused ? (
-              <motion.span
-                key="resume"
-                initial={{ opacity: 0, scale: 0.7 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.7 }}
-                transition={{ duration: 0.15 }}
-                className="flex items-center gap-2"
-              >
-                <Play className="h-4 w-4" /> Resume
-              </motion.span>
-            ) : (
-              <motion.span
-                key="pause"
-                initial={{ opacity: 0, scale: 0.7 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.7 }}
-                transition={{ duration: 0.15 }}
-                className="flex items-center gap-2"
-              >
-                <Pause className="h-4 w-4" /> Pause
-              </motion.span>
-            )}
-          </AnimatePresence>
-        </motion.button>
+        <div className="flex gap-2">
+          <motion.button
+            onClick={isPaused ? resumeTransfer : pauseTransfer}
+            whileHover={{ backgroundColor: "rgba(255,255,255,0.1)" }}
+            whileTap={{ scale: 0.97 }}
+            className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-white"
+          >
+            <AnimatePresence mode="wait" initial={false}>
+              {isPaused ? (
+                <motion.span
+                  key="resume"
+                  initial={{ opacity: 0, scale: 0.7 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.7 }}
+                  transition={{ duration: 0.15 }}
+                  className="flex items-center gap-2"
+                >
+                  <Play className="h-4 w-4" /> Resume
+                </motion.span>
+              ) : (
+                <motion.span
+                  key="pause"
+                  initial={{ opacity: 0, scale: 0.7 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.7 }}
+                  transition={{ duration: 0.15 }}
+                  className="flex items-center gap-2"
+                >
+                  <Pause className="h-4 w-4" /> Pause
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </motion.button>
+
+          <motion.button
+            onClick={() => sendingId && cancelTransfer(sendingId)}
+            disabled={!sendingId}
+            whileHover={{ backgroundColor: "rgba(239,68,68,0.15)" }}
+            whileTap={{ scale: 0.97 }}
+            className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-red-400/30 bg-red-400/5 px-4 py-2 text-sm font-semibold text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <X className="h-4 w-4" /> Cancel
+          </motion.button>
+        </div>
       )}
     </motion.div>
   );

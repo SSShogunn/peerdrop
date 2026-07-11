@@ -7,6 +7,7 @@ import { usePeer } from "./context/usePeer"
 import Landing from "./components/Landing"
 import FileDropzone from "./components/FileDropzone"
 import TransferProgress from "./components/TransferProgress"
+import ReceiverPanel from "./components/ReceiverPanel"
 
 function Shell({ children }: { children: React.ReactNode }) {
     return (
@@ -42,9 +43,8 @@ function Spinner() {
 }
 
 function AppInner() {
-    const { status, role, roomCode, joinRoom } = usePeer()
+    const { status, role, roomCode, joinRoom, transferError } = usePeer()
 
-    // auto-join if opened via a shared room link (?room=CODE)
     useEffect(() => {
         const params = new URLSearchParams(window.location.search)
         const code = params.get("room")
@@ -85,14 +85,17 @@ function AppInner() {
             role === "offerer" ? (
                 <FileDropzone />
             ) : (
-                <StatusMessage>
-                    Connected. Waiting for sender to drop a file...
-                </StatusMessage>
+                <div className="flex flex-col gap-4">
+                    <StatusMessage>
+                        Connected. Waiting for sender to drop a file...
+                    </StatusMessage>
+                    <ReceiverPanel />
+                </div>
             )
     } else if (status === "transferring") {
         content = (
             <div className="flex flex-col gap-6">
-                {role === "offerer" && <FileDropzone />}
+                {role === "offerer" ? <FileDropzone /> : <ReceiverPanel />}
                 <TransferProgress />
             </div>
         )
@@ -108,8 +111,13 @@ function AppInner() {
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                className="flex flex-col gap-3"
             >
-                <StatusMessage>Transfer complete.</StatusMessage>
+                {transferError ? (
+                    <StatusMessage tone="error">{transferError}</StatusMessage>
+                ) : (
+                    <StatusMessage>Transfer complete.</StatusMessage>
+                )}
             </motion.div>
         )
     } else if (status === "error") {
