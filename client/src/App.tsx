@@ -30,6 +30,36 @@ function StatusMessage({ children, tone = "muted" }: { children: React.ReactNode
     )
 }
 
+function errorCopy(reason: string | null): string {
+    switch (reason) {
+        case "room_not_found":
+            return "That code doesn't exist — check it and try again."
+        case "room_full":
+            return "That room already has two people in it."
+        case "room_expired":
+            return "That room expired before anyone joined. Create a new one."
+        case "server_busy":
+            return "The server is at capacity right now. Please try again in a bit."
+        case "rate_limited":
+            return "Too many attempts. Wait a moment and try again."
+        default:
+            return "Something went wrong. Please try again."
+    }
+}
+
+function RetryButton() {
+    return (
+        <motion.button
+            onClick={() => window.location.reload()}
+            whileHover={{ backgroundColor: "#e5e5e5" }}
+            whileTap={{ scale: 0.97 }}
+            className="w-full cursor-pointer rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black"
+        >
+            Start over
+        </motion.button>
+    )
+}
+
 function Spinner() {
     return (
         <motion.span
@@ -43,7 +73,7 @@ function Spinner() {
 }
 
 function AppInner() {
-    const { status, role, roomCode, joinRoom, transferError } = usePeer()
+    const { status, role, roomCode, joinRoom, transferError, errorReason } = usePeer()
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search)
@@ -111,17 +141,23 @@ function AppInner() {
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                className="flex flex-col gap-3"
+                className="flex flex-col gap-4"
             >
                 {transferError ? (
                     <StatusMessage tone="error">{transferError}</StatusMessage>
                 ) : (
                     <StatusMessage>Transfer complete.</StatusMessage>
                 )}
+                {role !== "offerer" && <ReceiverPanel />}
             </motion.div>
         )
     } else if (status === "error") {
-        content = <StatusMessage tone="error">Something went wrong. Please refresh.</StatusMessage>
+        content = (
+            <div className="flex flex-col gap-4">
+                <StatusMessage tone="error">{errorCopy(errorReason)}</StatusMessage>
+                <RetryButton />
+            </div>
+        )
     } else {
         content = null
     }

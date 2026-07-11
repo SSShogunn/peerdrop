@@ -12,6 +12,7 @@ import {
   type PeerContextValue,
   type PeerRole,
   type QueueItem,
+  type ReceivedFile,
   type SignalingMessage,
   type TransferMeta,
 } from "../types";
@@ -38,10 +39,13 @@ function buildIceServers(): RTCIceServer[] {
     servers.push({ urls: stunUrls });
   }
 
-  const turnUrl = import.meta.env.VITE_TURN_URL;
-  if (turnUrl) {
+  const turnUrls = (import.meta.env.VITE_TURN_URL || "")
+    .split(",")
+    .map((url) => url.trim())
+    .filter(Boolean);
+  if (turnUrls.length > 0) {
     servers.push({
-      urls: turnUrl,
+      urls: turnUrls,
       username: import.meta.env.VITE_TURN_USERNAME || undefined,
       credential: import.meta.env.VITE_TURN_CREDENTIAL || undefined,
     });
@@ -50,7 +54,35 @@ function buildIceServers(): RTCIceServer[] {
   return servers;
 }
 
-const ICE_SERVERS = buildIceServers();
+const TURN_CREDENTIALS_URL =
+  SIGNALING_SERVER.replace(/^ws/, "http").replace(/\/ws\/?$/, "") +
+  "/turn-credentials";
+
+let cachedIceServers: RTCIceServer[] | null = null;
+
+async function getIceServers(): Promise<RTCIceServer[]> {
+  if (cachedIceServers) return cachedIceServers;
+
+  const base = buildIceServers();
+  try {
+    const res = await fetch(TURN_CREDENTIALS_URL);
+    if (res.ok) {
+      const data = await res.json();
+      const fetched: RTCIceServer[] = Array.isArray(data.iceServers)
+        ? data.iceServers
+        : data.iceServers
+          ? [data.iceServers]
+          : [];
+      if (fetched.length > 0) {
+        cachedIceServers = [...base, ...fetched];
+        return cachedIceServers;
+      }
+    }
+  } catch (err) {
+    console.error("Failed to fetch TURN credentials:", err);
+  }
+  return base;
+}
 
 function safeFileName(name: string): string {
   return name.replace(/[/\\]/g, "_").replace(/^\.+/, "_") || "download";
@@ -103,6 +135,8 @@ export function PeerProvider({ children }: PeerProviderProps) {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [saveFolder, setSaveFolder] = useState<string | null>(null);
   const [transferError, setTransferError] = useState<string | null>(null);
+  const [errorReason, setErrorReason] = useState<string | null>(null);
+  const [receivedFiles, setReceivedFiles] = useState<ReceivedFile[]>([]);
 
   const canStreamToDisk =
     typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
@@ -117,7 +151,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
 
   const syncQueue = () => setQueue([...queueRef.current]);
 
-  const handleSignalingMessage = async (message: SignalingMessage) => {
+  const handleSignalingMessage = useCallback(async (message: SignalingMessage) => {
     switch (message.type) {
       case "room_created": {
         setRoomCode(message.code);
@@ -167,14 +201,14 @@ export function PeerProvider({ children }: PeerProviderProps) {
       }
 
       case "error": {
-        console.error("Signaling error:", message.message);
+        setErrorReason(message.message);
         setStatus("error");
         break;
       }
     }
-  };
+  }, []);
 
-  const handleSocketClose = () => {
+  const handleSocketClose = useCallback(() => {
     if (intentionalCloseRef.current) {
       intentionalCloseRef.current = false;
       return;
@@ -194,44 +228,49 @@ export function PeerProvider({ children }: PeerProviderProps) {
     setTimeout(() => {
       if (lastActionRef.current) openSocketRef.current(lastActionRef.current);
     }, backoff);
-  };
+  }, []);
 
-  const openSocket = (action: SignalingAction) => {
-    lastActionRef.current = action;
+  const openSocket = useCallback(
+    (action: SignalingAction) => {
+      lastActionRef.current = action;
 
-    const ws = new WebSocket(SIGNALING_SERVER);
-    wsRef.current = ws;
+      const ws = new WebSocket(SIGNALING_SERVER);
+      wsRef.current = ws;
 
-    ws.onopen = () => {
-      wsReconnectAttemptsRef.current = 0;
-      ws.send(JSON.stringify(action));
-    };
+      ws.onopen = () => {
+        wsReconnectAttemptsRef.current = 0;
+        ws.send(JSON.stringify(action));
+      };
 
-    ws.onmessage = async (event) => {
-      const message: SignalingMessage = JSON.parse(event.data);
-      await handleSignalingMessage(message);
-    };
+      ws.onmessage = async (event) => {
+        const message: SignalingMessage = JSON.parse(event.data);
+        await handleSignalingMessage(message);
+      };
 
-    ws.onclose = () => {
-      handleSocketClose();
-    };
+      ws.onclose = () => {
+        handleSocketClose();
+      };
 
-    ws.onerror = () => {};
-  };
+      ws.onerror = () => {};
+    },
+    [handleSignalingMessage, handleSocketClose],
+  );
 
   const createRoom = useCallback(() => {
     setTransferError(null);
+    setErrorReason(null);
     setStatus("connecting");
     wsReconnectAttemptsRef.current = 0;
-    openSocketRef.current({ type: "create_room" });
-  }, []);
+    openSocket({ type: "create_room" });
+  }, [openSocket]);
 
   const joinRoom = useCallback((code: string) => {
     setTransferError(null);
+    setErrorReason(null);
     setStatus("connecting");
     wsReconnectAttemptsRef.current = 0;
-    openSocketRef.current({ type: "join_room", code: code.toUpperCase() });
-  }, []);
+    openSocket({ type: "join_room", code: code.toUpperCase() });
+  }, [openSocket]);
 
   const setupDataChannel = (channel: RTCDataChannel) => {
     channel.onopen = () => {
@@ -323,6 +362,16 @@ export function PeerProvider({ children }: PeerProviderProps) {
           a.click();
           URL.revokeObjectURL(url);
         }
+        setReceivedFiles((prev) => [
+          {
+            id: meta.id,
+            fileName: meta.fileName,
+            fileSize: meta.fileSize,
+            fileType: meta.fileType,
+            receivedAt: Date.now(),
+          },
+          ...prev,
+        ]);
       } else {
         if (recvModeRef.current === "stream" && writableRef.current) {
           try {
@@ -459,6 +508,8 @@ export function PeerProvider({ children }: PeerProviderProps) {
     setCurrentFileName(null);
     setQueue([]);
     setTransferError(null);
+    setErrorReason(null);
+    setReceivedFiles([]);
     setStatus("idle");
   };
 
@@ -706,7 +757,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
   };
 
   const startWebRTC = async () => {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection({ iceServers: await getIceServers() });
     pcRef.current = pc;
 
     const channel = pc.createDataChannel("fileTransfer", { ordered: true });
@@ -741,7 +792,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
     let pc = pcRef.current;
 
     if (!pc) {
-      pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      pc = new RTCPeerConnection({ iceServers: await getIceServers() });
       pcRef.current = pc;
 
       pc.ondatachannel = (event) => {
@@ -801,6 +852,8 @@ export function PeerProvider({ children }: PeerProviderProps) {
     canStreamToDisk,
     saveFolder,
     transferError,
+    errorReason,
+    receivedFiles,
     createRoom,
     joinRoom,
     queueFiles,

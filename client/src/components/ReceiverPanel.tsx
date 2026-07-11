@@ -1,9 +1,16 @@
-import { motion } from "motion/react";
-import { AlertTriangle, FolderOpen, HardDrive } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { AlertTriangle, Check, FolderOpen, HardDrive } from "lucide-react";
 import { usePeer } from "../context/usePeer";
+import { formatBytes, getFileIcon } from "../lib/file";
 
 export default function ReceiverPanel() {
-  const { canStreamToDisk, saveFolder, chooseSaveFolder, transferError } = usePeer();
+  const {
+    canStreamToDisk,
+    saveFolder,
+    chooseSaveFolder,
+    transferError,
+    receivedFiles,
+  } = usePeer();
 
   return (
     <div className="flex flex-col gap-3">
@@ -45,6 +52,42 @@ export default function ReceiverPanel() {
         <div className="flex items-start gap-2 rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-300">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{transferError}</span>
+        </div>
+      )}
+
+      {receivedFiles.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+            Received ({receivedFiles.length})
+          </p>
+          <ul className="flex flex-col gap-2">
+            <AnimatePresence initial={false}>
+              {receivedFiles.map((file) => (
+                <motion.li
+                  key={file.id}
+                  layout
+                  initial={{ opacity: 0, y: -8, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.97 }}
+                  transition={{ duration: 0.2 }}
+                  className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5"
+                >
+                  <span className="text-lg">
+                    {getFileIcon(file.fileName, file.fileType)}
+                  </span>
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-sm font-medium text-white">
+                      {file.fileName}
+                    </span>
+                    <span className="text-xs text-neutral-400">
+                      {formatBytes(file.fileSize)}
+                    </span>
+                  </div>
+                  <Check className="h-4 w-4 shrink-0 text-emerald-400" />
+                </motion.li>
+              ))}
+            </AnimatePresence>
+          </ul>
         </div>
       )}
     </div>

@@ -1,11 +1,18 @@
 import { useState, useRef, type DragEvent } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { X } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 import { usePeer } from "../context/usePeer";
 import { formatBytes, getFileIcon } from "../lib/file";
 
+const LARGE_FILE_THRESHOLD = 500 * 1024 * 1024;
+
 export default function FileDropzone() {
   const { queueFiles, queue, cancelTransfer } = usePeer();
+  const hasLargeFile = queue.some(
+    (item) =>
+      item.fileSize > LARGE_FILE_THRESHOLD &&
+      (item.status === "queued" || item.status === "sending"),
+  );
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -70,6 +77,17 @@ export default function FileDropzone() {
           <p>or click to select</p>
         </motion.div>
       </motion.div>
+
+      {hasLargeFile && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-xs text-amber-300/90">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            Large file queued. If the receiver's browser can't stream to disk
+            (Safari, Firefox, most mobile), it's held in memory and may be slow
+            or fail on their end.
+          </span>
+        </div>
+      )}
 
       {queue.length > 0 && (
         <ul className="flex flex-col gap-2">

@@ -2,17 +2,32 @@ import { useState } from "react";
 import { motion } from "motion/react";
 import { usePeer } from "../context/usePeer";
 
+function extractCode(raw: string): string {
+  const fromUrl = raw.match(/[?&]room=([A-Za-z0-9]{4})/);
+  const source = fromUrl ? fromUrl[1] : raw;
+  return source
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 4);
+}
+
 export default function JoinRoom() {
   const { joinRoom } = usePeer();
   const [code, setCode] = useState("");
   const [shake, setShake] = useState(0);
 
   const handleJoin = () => {
-    if (code.trim().length === 0) {
+    if (code.length !== 4) {
       setShake((n) => n + 1);
       return;
     }
-    joinRoom(code.trim());
+    joinRoom(code);
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const next = extractCode(e.target.value);
+    setCode(next);
+    if (next.length === 4) joinRoom(next);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -33,7 +48,7 @@ export default function JoinRoom() {
         placeholder="Enter room code"
         value={code}
         maxLength={4}
-        onChange={(e) => setCode(e.target.value.toUpperCase())}
+        onChange={handleChange}
         onKeyDown={handleKeyDown}
         animate={shake ? { x: [0, -8, 8, -6, 6, 0] } : { x: 0 }}
         transition={{ duration: 0.35 }}

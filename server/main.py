@@ -7,6 +7,7 @@ import random
 import string
 import time
 
+import httpx
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocketDisconnect
@@ -61,6 +62,10 @@ RATE_LIMIT_MAX = _env_int("RATE_LIMIT_MAX", 30)
 RATE_LIMIT_WINDOW = _env_int("RATE_LIMIT_WINDOW", 60)
 ROOM_TTL_SECONDS = _env_int("ROOM_TTL_SECONDS", 600)
 CLEANUP_INTERVAL = _env_int("ROOM_CLEANUP_INTERVAL", 60)
+
+CF_TURN_KEY_ID = os.environ.get("CF_TURN_KEY_ID", "")
+CF_TURN_API_TOKEN = os.environ.get("CF_TURN_API_TOKEN", "")
+TURN_CREDENTIAL_TTL = _env_int("TURN_CREDENTIAL_TTL", 86400)
 
 
 START_TIME = time.time()
@@ -296,6 +301,26 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.get("/")
 async def get():
     return "Hello from the server !"
+
+
+@app.get("/turn-credentials")
+async def turn_credentials():
+    if not CF_TURN_KEY_ID or not CF_TURN_API_TOKEN:
+        return {"iceServers": []}
+
+    url = f"https://rtc.live.cloudflare.com/v1/turn/keys/{CF_TURN_KEY_ID}/credentials/generate"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                url,
+                headers={"Authorization": f"Bearer {CF_TURN_API_TOKEN}"},
+                json={"ttl": TURN_CREDENTIAL_TTL},
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.HTTPError as e:
+        log_event("turn_credentials_failed", error=str(e))
+        return {"iceServers": []}
 
 
 @app.get("/health")

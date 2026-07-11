@@ -66,6 +66,14 @@ export interface QueueItem {
     status: QueueItemStatus
 }
 
+export interface ReceivedFile {
+    id: string
+    fileName: string
+    fileSize: number
+    fileType: string
+    receivedAt: number
+}
+
 export interface PeerContextValue {
     status: ConnectionStatus
     roomCode: string
@@ -78,6 +86,8 @@ export interface PeerContextValue {
     canStreamToDisk: boolean
     saveFolder: string | null
     transferError: string | null
+    errorReason: string | null
+    receivedFiles: ReceivedFile[]
     createRoom: () => void
     joinRoom: (code: string) => void
     queueFiles: (files: File[]) => void
