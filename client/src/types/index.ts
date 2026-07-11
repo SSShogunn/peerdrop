@@ -4,9 +4,7 @@ export type ConnectionStatus =
     | "waiting_for_peer"
     | "peer_joined"
     | "p2p_connected"
-    | "transferring"
     | "reconnecting"
-    | "done"
     | "error"
 
 export type SignalingMessage =
@@ -22,6 +20,31 @@ export type SignalingMessage =
     | { type: "error"; message: string }
 
 export type PeerRole = "offerer" | "answerer" | null
+
+export type ConnectionType = "direct" | "relay" | null
+
+export interface FileSummary {
+    id: string
+    fileName: string
+    fileSize: number
+    fileType: string
+}
+
+export interface TransferRequest {
+    type: "request"
+    batchId: string
+    files: FileSummary[]
+}
+
+export interface TransferAccept {
+    type: "accept"
+    batchId: string
+}
+
+export interface TransferDecline {
+    type: "decline"
+    batchId: string
+}
 
 export interface TransferMeta {
     type: "meta"
@@ -51,15 +74,25 @@ export interface TransferCancel {
 }
 
 export type DataChannelMessage =
+    | TransferRequest
+    | TransferAccept
+    | TransferDecline
     | TransferMeta
     | TransferComplete
     | TransferAck
     | TransferCancel
 
-export type QueueItemStatus = "queued" | "sending" | "done" | "error" | "cancelled"
+export type QueueItemStatus =
+    | "pending"
+    | "queued"
+    | "sending"
+    | "done"
+    | "error"
+    | "cancelled"
 
 export interface QueueItem {
     id: string
+    batchId: string
     fileName: string
     fileSize: number
     fileType: string
@@ -74,20 +107,40 @@ export interface ReceivedFile {
     receivedAt: number
 }
 
+export interface IncomingRequest {
+    batchId: string
+    files: FileSummary[]
+}
+
 export interface PeerContextValue {
     status: ConnectionStatus
     roomCode: string
     role: PeerRole
-    progress: number
-    speed: number
-    isPaused: boolean
-    currentFileName: string | null
+    connectionType: ConnectionType
+    disconnectReason: "peer_left" | null
+    dismissDisconnectReason: () => void
     queue: QueueItem[]
+    isPaused: boolean
+
+    sendProgress: number
+    sendSpeed: number
+    sendFileName: string | null
+
+    recvProgress: number
+    recvSpeed: number
+    recvFileName: string | null
+
     canStreamToDisk: boolean
     saveFolder: string | null
     transferError: string | null
     errorReason: string | null
     receivedFiles: ReceivedFile[]
+
+    incomingRequests: IncomingRequest[]
+    acceptRequest: (batchId: string) => void
+    declineRequest: (batchId: string) => void
+
+    reset: () => void
     createRoom: () => void
     joinRoom: (code: string) => void
     queueFiles: (files: File[]) => void

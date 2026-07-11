@@ -1,14 +1,21 @@
-import { AnimatePresence, motion } from "motion/react";
 import { Pause, Play, X } from "lucide-react";
-import { usePeer } from "../context/usePeer";
-import { formatSpeed } from "../lib/file";
+import { usePeer } from "@/context/usePeer";
+import { formatSpeed } from "@/lib/file";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 
-export default function TransferProgress() {
+interface TransferProgressProps {
+  direction: "send" | "recv";
+}
+
+export default function TransferProgress({ direction }: TransferProgressProps) {
   const {
-    progress,
-    role,
-    speed,
-    currentFileName,
+    sendProgress,
+    sendSpeed,
+    sendFileName,
+    recvProgress,
+    recvSpeed,
+    recvFileName,
     isPaused,
     queue,
     pauseTransfer,
@@ -16,79 +23,52 @@ export default function TransferProgress() {
     cancelTransfer,
   } = usePeer();
 
+  const isSend = direction === "send";
+  const progress = isSend ? sendProgress : recvProgress;
+  const speed = isSend ? sendSpeed : recvSpeed;
+  const fileName = isSend ? sendFileName : recvFileName;
   const sendingId = queue.find((item) => item.status === "sending")?.id;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25 }}
-      className="flex w-full flex-col gap-3"
-    >
-      <p className="text-center text-sm font-medium text-white">
-        {role === "offerer" ? "Sending" : "Receiving"}
-        {currentFileName ? ` — ${currentFileName}` : "..."}
+    <div className="flex w-full flex-col gap-3">
+      <p className="text-center text-sm font-medium">
+        {isSend ? "Sending" : "Receiving"}
+        {fileName ? ` — ${fileName}` : "…"}
       </p>
 
-      <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
-        <motion.div
-          className="h-full rounded-full bg-white"
-          animate={{ width: `${progress}%` }}
-          transition={{ duration: 0.2, ease: "easeOut" }}
-        />
-      </div>
+      <Progress value={progress} />
 
-      <div className="flex items-center justify-between text-sm text-neutral-400">
+      <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>{progress}%</span>
         <span>{formatSpeed(speed)}</span>
       </div>
 
-      {role === "offerer" && (
+      {isSend && (
         <div className="flex gap-2">
-          <motion.button
+          <Button
+            variant="outline"
+            className="flex-1"
             onClick={isPaused ? resumeTransfer : pauseTransfer}
-            whileHover={{ backgroundColor: "rgba(255,255,255,0.1)" }}
-            whileTap={{ scale: 0.97 }}
-            className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-white"
           >
-            <AnimatePresence mode="wait" initial={false}>
-              {isPaused ? (
-                <motion.span
-                  key="resume"
-                  initial={{ opacity: 0, scale: 0.7 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.7 }}
-                  transition={{ duration: 0.15 }}
-                  className="flex items-center gap-2"
-                >
-                  <Play className="h-4 w-4" /> Resume
-                </motion.span>
-              ) : (
-                <motion.span
-                  key="pause"
-                  initial={{ opacity: 0, scale: 0.7 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.7 }}
-                  transition={{ duration: 0.15 }}
-                  className="flex items-center gap-2"
-                >
-                  <Pause className="h-4 w-4" /> Pause
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </motion.button>
-
-          <motion.button
-            onClick={() => sendingId && cancelTransfer(sendingId)}
+            {isPaused ? (
+              <>
+                <Play className="h-4 w-4" /> Resume
+              </>
+            ) : (
+              <>
+                <Pause className="h-4 w-4" /> Pause
+              </>
+            )}
+          </Button>
+          <Button
+            variant="destructive"
             disabled={!sendingId}
-            whileHover={{ backgroundColor: "rgba(239,68,68,0.15)" }}
-            whileTap={{ scale: 0.97 }}
-            className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-red-400/30 bg-red-400/5 px-4 py-2 text-sm font-semibold text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => sendingId && cancelTransfer(sendingId)}
           >
             <X className="h-4 w-4" /> Cancel
-          </motion.button>
+          </Button>
         </div>
       )}
-    </motion.div>
+    </div>
   );
 }

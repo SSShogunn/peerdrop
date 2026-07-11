@@ -8,7 +8,9 @@ import {
 import { createSHA256, type IHasher } from "hash-wasm";
 import {
   type ConnectionStatus,
+  type ConnectionType,
   type DataChannelMessage,
+  type IncomingRequest,
   type PeerContextValue,
   type PeerRole,
   type QueueItem,
@@ -88,6 +90,42 @@ function safeFileName(name: string): string {
   return name.replace(/[/\\]/g, "_").replace(/^\.+/, "_") || "download";
 }
 
+async function detectConnectionType(pc: RTCPeerConnection): Promise<ConnectionType> {
+  try {
+    const stats = await pc.getStats();
+    let pairId: string | null = null;
+
+    stats.forEach((report) => {
+      if (report.type === "transport" && report.selectedCandidatePairId) {
+        pairId = report.selectedCandidatePairId;
+      }
+    });
+
+    if (!pairId) {
+      stats.forEach((report) => {
+        if (
+          report.type === "candidate-pair" &&
+          (report.selected || (report.nominated && report.state === "succeeded"))
+        ) {
+          pairId = report.id;
+        }
+      });
+    }
+
+    if (!pairId) return null;
+
+    const pair = stats.get(pairId);
+    if (!pair) return null;
+
+    const local = stats.get(pair.localCandidateId);
+    const remote = stats.get(pair.remoteCandidateId);
+    const isRelay = local?.candidateType === "relay" || remote?.candidateType === "relay";
+    return isRelay ? "relay" : "direct";
+  } catch {
+    return null;
+  }
+}
+
 const noop = () => {};
 
 interface PeerProviderProps {
@@ -100,6 +138,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
   const channelRef = useRef<RTCDataChannel | null>(null);
   const roleRef = useRef<PeerRole>(null);
   const iceRestartAttemptsRef = useRef(0);
+  const hadConnectedRef = useRef(false);
 
   const lastActionRef = useRef<SignalingAction | null>(null);
   const intentionalCloseRef = useRef(false);
@@ -128,15 +167,24 @@ export function PeerProvider({ children }: PeerProviderProps) {
   const [status, setStatus] = useState<ConnectionStatus>("idle");
   const [roomCode, setRoomCode] = useState<string>("");
   const [role, setRole] = useState<PeerRole>(null);
-  const [progress, setProgress] = useState<number>(0);
-  const [speed, setSpeed] = useState<number>(0);
+  const [connectionType, setConnectionType] = useState<ConnectionType>(null);
+  const [disconnectReason, setDisconnectReason] = useState<"peer_left" | null>(null);
   const [isPaused, setIsPaused] = useState<boolean>(false);
-  const [currentFileName, setCurrentFileName] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
+
+  const [sendProgress, setSendProgress] = useState<number>(0);
+  const [sendSpeed, setSendSpeed] = useState<number>(0);
+  const [sendFileName, setSendFileName] = useState<string | null>(null);
+
+  const [recvProgress, setRecvProgress] = useState<number>(0);
+  const [recvSpeed, setRecvSpeed] = useState<number>(0);
+  const [recvFileName, setRecvFileName] = useState<string | null>(null);
+
   const [saveFolder, setSaveFolder] = useState<string | null>(null);
   const [transferError, setTransferError] = useState<string | null>(null);
   const [errorReason, setErrorReason] = useState<string | null>(null);
   const [receivedFiles, setReceivedFiles] = useState<ReceivedFile[]>([]);
+  const [incomingRequests, setIncomingRequests] = useState<IncomingRequest[]>([]);
 
   const canStreamToDisk =
     typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
@@ -259,6 +307,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
   const createRoom = useCallback(() => {
     setTransferError(null);
     setErrorReason(null);
+    setDisconnectReason(null);
     setStatus("connecting");
     wsReconnectAttemptsRef.current = 0;
     openSocket({ type: "create_room" });
@@ -267,6 +316,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
   const joinRoom = useCallback((code: string) => {
     setTransferError(null);
     setErrorReason(null);
+    setDisconnectReason(null);
     setStatus("connecting");
     wsReconnectAttemptsRef.current = 0;
     openSocket({ type: "join_room", code: code.toUpperCase() });
@@ -274,6 +324,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
 
   const setupDataChannel = (channel: RTCDataChannel) => {
     channel.onopen = () => {
+      hadConnectedRef.current = true;
       setStatus("p2p_connected");
     };
 
@@ -286,9 +337,8 @@ export function PeerProvider({ children }: PeerProviderProps) {
       receivedChunksRef.current = 0;
       recvSpeedSampleRef.current = { time: performance.now(), bytes: 0 };
       setTransferError(null);
-      setProgress(0);
-      setCurrentFileName(meta.fileName);
-      setStatus("transferring");
+      setRecvProgress(0);
+      setRecvFileName(meta.fileName);
 
       if (!recvHasherRef.current) {
         recvHasherRef.current = await createSHA256();
@@ -326,7 +376,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
       }
 
       receivedChunksRef.current += 1;
-      setProgress(
+      setRecvProgress(
         Math.round((receivedChunksRef.current / meta.totalChunks) * 100),
       );
 
@@ -335,7 +385,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
       const now = performance.now();
       const elapsed = now - sample.time;
       if (elapsed >= SPEED_SAMPLE_INTERVAL_MS) {
-        setSpeed(Math.round((sample.bytes / elapsed) * 1000));
+        setRecvSpeed(Math.round((sample.bytes / elapsed) * 1000));
         sample.time = now;
         sample.bytes = 0;
       }
@@ -395,21 +445,49 @@ export function PeerProvider({ children }: PeerProviderProps) {
       incomingChunksRef.current = [];
       incomingMetaRef.current = null;
       receivedChunksRef.current = 0;
-      setCurrentFileName(null);
-
-      if (ok && meta.isLastInQueue) {
-        setStatus("done");
-        setProgress(100);
-        setSpeed(0);
-      } else if (!ok) {
-        setStatus("p2p_connected");
-        setSpeed(0);
-      }
+      setRecvFileName(null);
+      setRecvProgress(0);
+      setRecvSpeed(0);
     };
 
     const handleData = async (data: string | ArrayBuffer) => {
       if (typeof data === "string") {
         const msg: DataChannelMessage = JSON.parse(data);
+
+        if (msg.type === "request") {
+          setIncomingRequests((prev) => [...prev, { batchId: msg.batchId, files: msg.files }]);
+          return;
+        }
+
+        if (msg.type === "accept") {
+          let anyApproved = false;
+          queueRef.current.forEach((item) => {
+            if (item.batchId === msg.batchId && item.status === "pending") {
+              item.status = "queued";
+              anyApproved = true;
+            }
+          });
+          syncQueue();
+          if (anyApproved) processQueueRef.current();
+          return;
+        }
+
+        if (msg.type === "decline") {
+          let anyDeclined = false;
+          queueRef.current.forEach((item) => {
+            if (item.batchId === msg.batchId && item.status === "pending") {
+              item.status = "cancelled";
+              filesByIdRef.current.delete(item.id);
+              anyDeclined = true;
+            }
+          });
+          syncQueue();
+          if (anyDeclined) {
+            setTransferError("The receiver declined your files.");
+          }
+          return;
+        }
+
         if (msg.type === "meta") {
           await handleMeta(msg);
         } else if (msg.type === "complete") {
@@ -427,10 +505,9 @@ export function PeerProvider({ children }: PeerProviderProps) {
           incomingChunksRef.current = [];
           incomingMetaRef.current = null;
           receivedChunksRef.current = 0;
-          setCurrentFileName(null);
-          setProgress(0);
-          setSpeed(0);
-          setStatus("p2p_connected");
+          setRecvFileName(null);
+          setRecvProgress(0);
+          setRecvSpeed(0);
           setTransferError(
             name
               ? `The sender cancelled "${name}".`
@@ -459,6 +536,34 @@ export function PeerProvider({ children }: PeerProviderProps) {
     };
   };
 
+  const acceptRequest = useCallback((batchId: string) => {
+    setIncomingRequests((prev) => {
+      const found = prev.find((r) => r.batchId === batchId);
+      if (found) {
+        try {
+          channelRef.current?.send(JSON.stringify({ type: "accept", batchId }));
+        } catch {
+          noop();
+        }
+      }
+      return prev.filter((r) => r.batchId !== batchId);
+    });
+  }, []);
+
+  const declineRequest = useCallback((batchId: string) => {
+    setIncomingRequests((prev) => {
+      const found = prev.find((r) => r.batchId === batchId);
+      if (found) {
+        try {
+          channelRef.current?.send(JSON.stringify({ type: "decline", batchId }));
+        } catch {
+          noop();
+        }
+      }
+      return prev.filter((r) => r.batchId !== batchId);
+    });
+  }, []);
+
   const chooseSaveFolder = useCallback(async () => {
     if (typeof window.showDirectoryPicker !== "function") return;
     try {
@@ -471,6 +576,9 @@ export function PeerProvider({ children }: PeerProviderProps) {
   }, []);
 
   const handlePeerDisconnect = () => {
+    const wasConnected = hadConnectedRef.current;
+    hadConnectedRef.current = false;
+
     pcRef.current?.close();
     pcRef.current = null;
     channelRef.current = null;
@@ -502,16 +610,30 @@ export function PeerProvider({ children }: PeerProviderProps) {
 
     setRole(null);
     setRoomCode("");
-    setProgress(0);
-    setSpeed(0);
+    setConnectionType(null);
+    setSendProgress(0);
+    setSendSpeed(0);
+    setSendFileName(null);
+    setRecvProgress(0);
+    setRecvSpeed(0);
+    setRecvFileName(null);
     setIsPaused(false);
-    setCurrentFileName(null);
     setQueue([]);
     setTransferError(null);
     setErrorReason(null);
     setReceivedFiles([]);
+    setIncomingRequests([]);
+    setDisconnectReason(wasConnected ? "peer_left" : null);
     setStatus("idle");
   };
+
+  const dismissDisconnectReason = useCallback(() => {
+    setDisconnectReason(null);
+  }, []);
+
+  const reset = useCallback(() => {
+    handlePeerDisconnectRef.current();
+  }, []);
 
   const processQueue = async () => {
     if (processingRef.current || pausedRef.current) return;
@@ -528,9 +650,8 @@ export function PeerProvider({ children }: PeerProviderProps) {
     processingRef.current = true;
     next.status = "sending";
     syncQueue();
-    setCurrentFileName(next.fileName);
-    setStatus("transferring");
-    setProgress(0);
+    setSendFileName(next.fileName);
+    setSendProgress(0);
 
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     const remainingAfter = queueRef.current.filter(
@@ -557,12 +678,12 @@ export function PeerProvider({ children }: PeerProviderProps) {
 
     const advance = () => {
       processingRef.current = false;
-      setCurrentFileName(null);
+      setSendFileName(null);
       const hasMore = queueRef.current.some((item) => item.status === "queued");
       if (hasMore) {
         processQueueRef.current();
       } else {
-        setSpeed(0);
+        setSendSpeed(0);
       }
     };
 
@@ -577,14 +698,13 @@ export function PeerProvider({ children }: PeerProviderProps) {
       next.status = "done";
       syncQueue();
       processingRef.current = false;
-      setCurrentFileName(null);
+      setSendFileName(null);
 
       const hasMore = queueRef.current.some((item) => item.status === "queued");
       if (hasMore) {
         processQueueRef.current();
       } else {
-        setStatus("done");
-        setSpeed(0);
+        setSendSpeed(0);
       }
     };
 
@@ -598,9 +718,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
       filesByIdRef.current.delete(next.id);
       next.status = "cancelled";
       syncQueue();
-      const hadMore = queueRef.current.some((item) => item.status === "queued");
       advance();
-      if (!hadMore) setStatus("p2p_connected");
     };
 
     const sendNextChunk = () => {
@@ -630,13 +748,13 @@ export function PeerProvider({ children }: PeerProviderProps) {
         chunkIndex += 1;
         offset += CHUNK_SIZE;
         const pct = Math.round((chunkIndex / totalChunks) * 100);
-        setProgress(pct);
+        setSendProgress(pct);
 
         speedSample.bytes += buffer.byteLength;
         const now = performance.now();
         const elapsed = now - speedSample.time;
         if (elapsed >= SPEED_SAMPLE_INTERVAL_MS) {
-          setSpeed(Math.round((speedSample.bytes / elapsed) * 1000));
+          setSendSpeed(Math.round((speedSample.bytes / elapsed) * 1000));
           speedSample.time = now;
           speedSample.bytes = 0;
         }
@@ -663,18 +781,35 @@ export function PeerProvider({ children }: PeerProviderProps) {
   };
 
   const queueFiles = useCallback((files: File[]) => {
+    const channel = channelRef.current;
+    if (!channel || channel.readyState !== "open") return;
+
+    const batchId = crypto.randomUUID();
     const items: QueueItem[] = files.map((file) => ({
       id: crypto.randomUUID(),
+      batchId,
       fileName: file.name,
       fileSize: file.size,
       fileType: file.type,
-      status: "queued",
+      status: "pending",
     }));
 
     items.forEach((item, i) => filesByIdRef.current.set(item.id, files[i]));
     queueRef.current = [...queueRef.current, ...items];
     syncQueue();
-    processQueueRef.current();
+
+    channel.send(
+      JSON.stringify({
+        type: "request",
+        batchId,
+        files: items.map((item) => ({
+          id: item.id,
+          fileName: item.fileName,
+          fileSize: item.fileSize,
+          fileType: item.fileType,
+        })),
+      }),
+    );
   }, []);
 
   const cancelTransfer = useCallback((id: string) => {
@@ -690,7 +825,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
         resumeFnRef.current = null;
         fn?.();
       }
-    } else if (item.status === "queued") {
+    } else if (item.status === "queued" || item.status === "pending") {
       item.status = "cancelled";
       filesByIdRef.current.delete(id);
       syncQueue();
@@ -720,6 +855,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
       case "connected":
         iceRestartAttemptsRef.current = 0;
         setStatus("p2p_connected");
+        detectConnectionType(pc).then(setConnectionType);
         break;
       case "failed":
         setStatus("reconnecting");
@@ -844,16 +980,26 @@ export function PeerProvider({ children }: PeerProviderProps) {
     status,
     roomCode,
     role,
-    progress,
-    speed,
-    isPaused,
-    currentFileName,
+    connectionType,
+    disconnectReason,
+    dismissDisconnectReason,
     queue,
+    isPaused,
+    sendProgress,
+    sendSpeed,
+    sendFileName,
+    recvProgress,
+    recvSpeed,
+    recvFileName,
     canStreamToDisk,
     saveFolder,
     transferError,
     errorReason,
     receivedFiles,
+    incomingRequests,
+    acceptRequest,
+    declineRequest,
+    reset,
     createRoom,
     joinRoom,
     queueFiles,
