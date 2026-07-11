@@ -3,12 +3,18 @@ import { AnimatePresence, motion } from "motion/react";
 import { PeerProvider } from "@/context/PeerContext";
 import { usePeer } from "@/context/usePeer";
 import { AppHeader } from "@/components/AppHeader";
+import Landing from "@/components/screens/Landing";
 import Home from "@/components/screens/Home";
 import Hosting from "@/components/screens/Hosting";
 import Joining from "@/components/screens/Joining";
 import Room from "@/components/screens/Room";
 import Interrupted from "@/components/screens/Interrupted";
 import Ended from "@/components/screens/Ended";
+
+function hasAppEntry() {
+  const params = new URLSearchParams(window.location.search);
+  return window.location.pathname === "/app" || !!params.get("room");
+}
 
 export type Intent = "create" | "join" | null;
 
@@ -79,6 +85,23 @@ function AppInner() {
 }
 
 export default function App() {
+  const [showApp, setShowApp] = useState(hasAppEntry);
+
+  useEffect(() => {
+    const onPopState = () => setShowApp(hasAppEntry());
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const openApp = () => {
+    window.history.pushState({}, "", "/app");
+    setShowApp(true);
+  };
+
+  if (!showApp) {
+    return <Landing onOpenApp={openApp} />;
+  }
+
   return (
     <PeerProvider>
       <AppInner />

@@ -25,7 +25,7 @@ export default defineConfig({
         name: 'PeerDrop',
         short_name: 'PeerDrop',
         description: 'Send files directly between browsers over a peer-to-peer connection.',
-        start_url: '/',
+        start_url: '/app',
         display: 'standalone',
         background_color: '#09090b',
         theme_color: '#09090b',
