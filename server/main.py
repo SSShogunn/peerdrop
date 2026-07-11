@@ -8,7 +8,7 @@ import string
 import time
 
 import httpx
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocketDisconnect
 from starlette.websockets import WebSocketState
@@ -76,6 +76,8 @@ peer_room: dict = {}
 
 rate_limits: dict[str, list[float]] = {}
 
+counters = {"rooms_created": 0, "peers_joined": 0, "rate_limited": 0}
+
 
 def generate_room_code(length: int = 4) -> str:
     characters = string.ascii_uppercase + string.digits
@@ -118,6 +120,7 @@ async def handle_create_room(websocket: WebSocket):
     code = generate_room_code()
     rooms[code] = {"peer_a": websocket, "peer_b": None, "created_at": time.time()}
     peer_room[websocket] = code
+    counters["rooms_created"] += 1
     await websocket.send_text(json.dumps({"type": "room_created", "code": code}))
     log_event("room_created", code=code)
 
@@ -140,6 +143,7 @@ async def handle_join_room(websocket: WebSocket, code: str):
     room["peer_b"] = websocket
     peer_room[websocket] = code
 
+    counters["peers_joined"] += 1
     await websocket.send_text(json.dumps({"type": "room_joined"}))
     await room["peer_a"].send_text(json.dumps({"type": "peer_joined"}))
     log_event("peer_joined", code=code)
@@ -271,6 +275,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
             if msg_type in ("create_room", "join_room"):
                 if not check_rate_limit(ip):
+                    counters["rate_limited"] += 1
                     await websocket.send_text(
                         json.dumps({"type": "error", "message": "rate_limited"})
                     )
@@ -331,3 +336,28 @@ async def health():
         "active_rooms": len(rooms),
         "connected_peers": len(peer_room),
     }
+
+
+@app.get("/metrics")
+async def metrics():
+    lines = [
+        "# HELP peerdrop_uptime_seconds Process uptime in seconds.",
+        "# TYPE peerdrop_uptime_seconds gauge",
+        f"peerdrop_uptime_seconds {round(time.time() - START_TIME, 1)}",
+        "# HELP peerdrop_active_rooms Rooms currently held in memory.",
+        "# TYPE peerdrop_active_rooms gauge",
+        f"peerdrop_active_rooms {len(rooms)}",
+        "# HELP peerdrop_connected_peers Peers currently connected.",
+        "# TYPE peerdrop_connected_peers gauge",
+        f"peerdrop_connected_peers {len(peer_room)}",
+        "# HELP peerdrop_rooms_created_total Rooms created since startup.",
+        "# TYPE peerdrop_rooms_created_total counter",
+        f"peerdrop_rooms_created_total {counters['rooms_created']}",
+        "# HELP peerdrop_peers_joined_total Successful room joins since startup.",
+        "# TYPE peerdrop_peers_joined_total counter",
+        f"peerdrop_peers_joined_total {counters['peers_joined']}",
+        "# HELP peerdrop_rate_limited_total Requests rejected by the rate limiter.",
+        "# TYPE peerdrop_rate_limited_total counter",
+        f"peerdrop_rate_limited_total {counters['rate_limited']}",
+    ]
+    return Response("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
