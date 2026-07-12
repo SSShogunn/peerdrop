@@ -30,7 +30,7 @@ function Shell({ children }: { children: ReactNode }) {
 }
 
 function AppInner() {
-  const { status, roomCode, joinRoom } = usePeer();
+  const { status, roomCode, joinRoom, reset } = usePeer();
   const [intent, setIntent] = useState<Intent>(() =>
     new URLSearchParams(window.location.search).get("room") ? "join" : null,
   );
@@ -44,12 +44,27 @@ function AppInner() {
     joinRoom(code);
   }, [joinRoom]);
 
+  useEffect(() => {
+    const onPopState = () => {
+      if (status !== "idle") reset();
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [status, reset]);
+
+  const handleIntent = (next: Intent) => {
+    if (next) {
+      window.history.pushState({ session: true }, "", window.location.pathname + window.location.search);
+    }
+    setIntent(next);
+  };
+
   let key: string;
   let screen: ReactNode;
 
   if (status === "idle") {
     key = "home";
-    screen = <Home onIntent={setIntent} />;
+    screen = <Home onIntent={handleIntent} />;
   } else if (status === "reconnecting") {
     key = "interrupted";
     screen = <Interrupted />;

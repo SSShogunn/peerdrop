@@ -78,7 +78,13 @@ export default function TextShare() {
           maxLength={10000}
           className="h-10 flex-1 resize-none bg-transparent px-2.5 py-2 text-sm outline-none ring-1 ring-foreground/10 placeholder:text-muted-foreground focus-visible:ring-ring"
         />
-        <Button size="icon" disabled={!draft.trim()} onClick={handleSend} aria-label="Send text">
+        <Button
+          size="icon"
+          className="h-10 w-10"
+          disabled={!draft.trim()}
+          onClick={handleSend}
+          aria-label="Send text"
+        >
           <Send className="h-4 w-4" />
         </Button>
       </div>

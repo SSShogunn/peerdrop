@@ -1,5 +1,6 @@
 import { motion } from "motion/react";
 import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { usePeer } from "@/context/usePeer";
 
 function Spinner() {
@@ -15,7 +16,7 @@ function Spinner() {
 }
 
 export default function Joining() {
-  const { status } = usePeer();
+  const { status, reset } = usePeer();
 
   const copy =
     status === "connecting" ? "Joining room…" : "Waiting for the sender to start…";
@@ -24,6 +25,9 @@ export default function Joining() {
     <div className="flex flex-col items-center gap-3 py-16 text-center">
       <Spinner />
       <p className="text-sm text-muted-foreground">{copy}</p>
+      <Button variant="ghost" onClick={reset}>
+        Cancel
+      </Button>
     </div>
   );
 }

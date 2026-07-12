@@ -1005,6 +1005,58 @@ export function PeerProvider({ children }: PeerProviderProps) {
     openSocketRef.current = openSocket;
   });
 
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+
+      if (lastActionRef.current && (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED)) {
+        openSocketRef.current(lastActionRef.current);
+      }
+
+      const pc = pcRef.current;
+      if (pc && (pc.connectionState === "failed" || pc.connectionState === "disconnected")) {
+        attemptIceRestartRef.current();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("wakeLock" in navigator)) return;
+    if (status !== "p2p_connected") return;
+
+    let cancelled = false;
+    let sentinel: WakeLockSentinel | null = null;
+
+    const acquire = async () => {
+      try {
+        const lock = await navigator.wakeLock.request("screen");
+        if (cancelled) {
+          lock.release().catch(noop);
+          return;
+        }
+        sentinel = lock;
+      } catch {
+        noop();
+      }
+    };
+
+    acquire();
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && !sentinel) acquire();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      sentinel?.release().catch(noop);
+    };
+  }, [status]);
+
   const value: PeerContextValue = {
     status,
     roomCode,

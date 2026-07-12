@@ -43,13 +43,16 @@ function CopyLinkButton({ roomCode }: { roomCode: string }) {
 }
 
 export default function Hosting() {
-  const { status, roomCode } = usePeer();
+  const { status, roomCode, reset } = usePeer();
 
   if (!roomCode) {
     return (
       <div className="flex flex-col items-center gap-3 py-16 text-center">
         <Spinner />
         <p className="text-sm text-muted-foreground">Creating room…</p>
+        <Button variant="ghost" onClick={reset}>
+          Cancel
+        </Button>
       </div>
     );
   }
@@ -91,6 +94,10 @@ export default function Hosting() {
           ? "Peer joined. Establishing connection…"
           : "Waiting for them to join…"}
       </div>
+
+      <Button variant="ghost" onClick={reset}>
+        Cancel
+      </Button>
     </div>
   );
 }
