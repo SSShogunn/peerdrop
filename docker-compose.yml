@@ -1,15 +1,14 @@
 name: peerdrop
+
 services:
   backend:
     build:
       context: .
       dockerfile: Dockerfile.backend
     container_name: peerdrop-backend
-    volumes:
-      - ./server:/app
-      - backend-venv:/app/.venv
+    restart: unless-stopped
     environment:
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://peerdrop.sshogunn.org,http://localhost:5173,http://localhost:20015}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://peerdrop.sshogunn.org}
       MAX_ROOMS: ${MAX_ROOMS:-500}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-30}
       RATE_LIMIT_WINDOW: ${RATE_LIMIT_WINDOW:-60}
@@ -25,11 +24,9 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
     container_name: peerdrop-frontend
-    volumes:
-      - ./client:/app
-      - frontend-node-modules:/app/node_modules
+    restart: unless-stopped
     expose:
-      - "5173"
+      - "80"
     depends_on:
       - backend
 
@@ -41,7 +38,3 @@ services:
     depends_on:
       - frontend
       - backend
-
-volumes:
-  backend-venv:
-  frontend-node-modules:
