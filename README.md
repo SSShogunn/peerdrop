@@ -152,6 +152,9 @@ No ports are published to the host — `frontend` and `backend` are only
 reachable inside the compose network, with `cloudflared` as the sole
 entry point from the internet.
 
+See [`DEPLOY.md`](DEPLOY.md) for the redeploy command, the Cloudflare
+Tunnel ingress config, and two gotchas already hit once.
+
 ## Server API surface
 
 The signaling server is deliberately small — it never sees file content.
