@@ -15,11 +15,13 @@ import {
   type PeerRole,
   type QueueItem,
   type ReceivedFile,
+  type SessionSummary,
   type SignalingMessage,
   type TextEntry,
   type TransferMeta,
 } from "../types";
 import { PeerContext } from "./peer-context-instance";
+import { createImagePreview } from "../lib/thumbnail";
 
 const SIGNALING_SERVER = import.meta.env.VITE_SIGNALING_SERVER;
 const CHUNK_SIZE = Number(import.meta.env.VITE_CHUNK_SIZE) * 1024 || 16 * 1024;
@@ -141,6 +143,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
   const roleRef = useRef<PeerRole>(null);
   const iceRestartAttemptsRef = useRef(0);
   const hadConnectedRef = useRef(false);
+  const sessionStartRef = useRef<number | null>(null);
 
   const lastActionRef = useRef<SignalingAction | null>(null);
   const intentionalCloseRef = useRef(false);
@@ -171,6 +174,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
   const [role, setRole] = useState<PeerRole>(null);
   const [connectionType, setConnectionType] = useState<ConnectionType>(null);
   const [disconnectReason, setDisconnectReason] = useState<"peer_left" | null>(null);
+  const [lastSessionSummary, setLastSessionSummary] = useState<SessionSummary | null>(null);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [queue, setQueue] = useState<QueueItem[]>([]);
 
@@ -311,6 +315,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
     setTransferError(null);
     setErrorReason(null);
     setDisconnectReason(null);
+    setLastSessionSummary(null);
     setStatus("connecting");
     wsReconnectAttemptsRef.current = 0;
     openSocket({ type: "create_room" });
@@ -320,6 +325,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
     setTransferError(null);
     setErrorReason(null);
     setDisconnectReason(null);
+    setLastSessionSummary(null);
     setStatus("connecting");
     wsReconnectAttemptsRef.current = 0;
     openSocket({ type: "join_room", code: code.toUpperCase() });
@@ -328,6 +334,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
   const setupDataChannel = (channel: RTCDataChannel) => {
     channel.onopen = () => {
       hadConnectedRef.current = true;
+      sessionStartRef.current = Date.now();
       setStatus("p2p_connected");
     };
 
@@ -607,6 +614,26 @@ export function PeerProvider({ children }: PeerProviderProps) {
     const wasConnected = hadConnectedRef.current;
     hadConnectedRef.current = false;
 
+    const filesSent = queueRef.current.filter((item) => item.status === "done").length;
+    const bytesSent = queueRef.current
+      .filter((item) => item.status === "done")
+      .reduce((sum, item) => sum + item.fileSize, 0);
+    const filesReceived = receivedFiles.length;
+    const bytesReceived = receivedFiles.reduce((sum, file) => sum + file.fileSize, 0);
+    const durationMs = sessionStartRef.current ? Date.now() - sessionStartRef.current : 0;
+    sessionStartRef.current = null;
+
+    if (wasConnected && (filesSent > 0 || filesReceived > 0 || messages.length > 0)) {
+      setLastSessionSummary({
+        filesSent,
+        bytesSent,
+        filesReceived,
+        bytesReceived,
+        textMessages: messages.length,
+        durationMs,
+      });
+    }
+
     pcRef.current?.close();
     pcRef.current = null;
     channelRef.current = null;
@@ -658,6 +685,10 @@ export function PeerProvider({ children }: PeerProviderProps) {
 
   const dismissDisconnectReason = useCallback(() => {
     setDisconnectReason(null);
+  }, []);
+
+  const dismissSessionSummary = useCallback(() => {
+    setLastSessionSummary(null);
   }, []);
 
   const reset = useCallback(() => {
@@ -809,7 +840,7 @@ export function PeerProvider({ children }: PeerProviderProps) {
     sendNextChunk();
   };
 
-  const queueFiles = useCallback((files: File[]) => {
+  const queueFiles = useCallback(async (files: File[]) => {
     const channel = channelRef.current;
     if (!channel || channel.readyState !== "open") return;
 
@@ -827,18 +858,25 @@ export function PeerProvider({ children }: PeerProviderProps) {
     queueRef.current = [...queueRef.current, ...items];
     syncQueue();
 
-    channel.send(
-      JSON.stringify({
-        type: "request",
-        batchId,
-        files: items.map((item) => ({
-          id: item.id,
-          fileName: item.fileName,
-          fileSize: item.fileSize,
-          fileType: item.fileType,
-        })),
-      }),
-    );
+    const previews = await Promise.all(files.map((file) => createImagePreview(file)));
+
+    try {
+      channel.send(
+        JSON.stringify({
+          type: "request",
+          batchId,
+          files: items.map((item, i) => ({
+            id: item.id,
+            fileName: item.fileName,
+            fileSize: item.fileSize,
+            fileType: item.fileType,
+            previewDataUrl: previews[i],
+          })),
+        }),
+      );
+    } catch {
+      noop();
+    }
   }, []);
 
   const cancelTransfer = useCallback((id: string) => {
@@ -1064,6 +1102,8 @@ export function PeerProvider({ children }: PeerProviderProps) {
     connectionType,
     disconnectReason,
     dismissDisconnectReason,
+    lastSessionSummary,
+    dismissSessionSummary,
     queue,
     isPaused,
     sendProgress,

@@ -28,6 +28,7 @@ export interface FileSummary {
     fileName: string
     fileSize: number
     fileType: string
+    previewDataUrl?: string
 }
 
 export interface TransferRequest {
@@ -126,6 +127,15 @@ export interface TextEntry {
     at: number
 }
 
+export interface SessionSummary {
+    filesSent: number
+    bytesSent: number
+    filesReceived: number
+    bytesReceived: number
+    textMessages: number
+    durationMs: number
+}
+
 export interface PeerContextValue {
     status: ConnectionStatus
     roomCode: string
@@ -133,6 +143,8 @@ export interface PeerContextValue {
     connectionType: ConnectionType
     disconnectReason: "peer_left" | null
     dismissDisconnectReason: () => void
+    lastSessionSummary: SessionSummary | null
+    dismissSessionSummary: () => void
     queue: QueueItem[]
     isPaused: boolean
 

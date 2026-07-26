@@ -1,10 +1,34 @@
 import { useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { motion } from "motion/react";
-import { UserMinus, X } from "lucide-react";
+import { CheckCircle2, UserMinus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { usePeer } from "@/context/usePeer";
+import { formatBytes, formatDuration } from "@/lib/file";
 import type { Intent } from "@/App";
+
+function summaryLine({
+  filesSent,
+  bytesSent,
+  filesReceived,
+  bytesReceived,
+  textMessages,
+  durationMs,
+}: {
+  filesSent: number;
+  bytesSent: number;
+  filesReceived: number;
+  bytesReceived: number;
+  textMessages: number;
+  durationMs: number;
+}): string {
+  const parts: string[] = [];
+  if (filesSent > 0) parts.push(`${filesSent} sent (${formatBytes(bytesSent)})`);
+  if (filesReceived > 0) parts.push(`${filesReceived} received (${formatBytes(bytesReceived)})`);
+  if (textMessages > 0) parts.push(`${textMessages} message${textMessages === 1 ? "" : "s"}`);
+  parts.push(formatDuration(durationMs));
+  return parts.join(" · ");
+}
 
 function extractCode(raw: string): string {
   const fromUrl = raw.match(/[?&]room=([A-Za-z0-9]{4})/);
@@ -20,7 +44,14 @@ interface HomeProps {
 }
 
 export default function Home({ onIntent }: HomeProps) {
-  const { createRoom, joinRoom, disconnectReason, dismissDisconnectReason } = usePeer();
+  const {
+    createRoom,
+    joinRoom,
+    disconnectReason,
+    dismissDisconnectReason,
+    lastSessionSummary,
+    dismissSessionSummary,
+  } = usePeer();
   const [code, setCode] = useState("");
   const [shake, setShake] = useState(0);
 
@@ -51,6 +82,20 @@ export default function Home({ onIntent }: HomeProps) {
 
   return (
     <div className="flex flex-col gap-8">
+      {lastSessionSummary && (
+        <div className="flex items-center gap-2 bg-card p-3 text-xs ring-1 ring-foreground/10">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <span className="flex-1 text-muted-foreground">{summaryLine(lastSessionSummary)}</span>
+          <button
+            onClick={dismissSessionSummary}
+            aria-label="Dismiss"
+            className="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {disconnectReason === "peer_left" && (
         <div className="flex items-center gap-2 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
           <UserMinus className="h-4 w-4 shrink-0" />

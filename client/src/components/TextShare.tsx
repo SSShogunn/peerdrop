@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from "react";
+import { useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Copy, Send } from "lucide-react";
 import { usePeer } from "@/context/usePeer";
@@ -50,7 +50,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export default function TextShare() {
-  const { messages, sendText } = usePeer();
+  const { messages, sendText, queueFiles } = usePeer();
   const [draft, setDraft] = useState("");
 
   const handleSend = () => {
@@ -66,6 +66,17 @@ export default function TextShare() {
     }
   };
 
+  const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const images = Array.from(e.clipboardData.items)
+      .filter((item) => item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null);
+
+    if (images.length === 0) return;
+    e.preventDefault();
+    queueFiles(images);
+  };
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-end gap-2">
@@ -73,7 +84,8 @@ export default function TextShare() {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Send a text or link…"
+          onPaste={handlePaste}
+          placeholder="Send a text or link… (paste an image to send it as a file)"
           rows={1}
           maxLength={10000}
           className="h-10 flex-1 resize-none bg-transparent px-2.5 py-2 text-sm outline-none ring-1 ring-foreground/10 placeholder:text-muted-foreground focus-visible:ring-ring"
