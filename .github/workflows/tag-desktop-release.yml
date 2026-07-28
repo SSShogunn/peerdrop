@@ -1,4 +1,3 @@
-# Auto-tags a desktop-v* release when tauri.conf.json's version bumps on main.
 name: Tag desktop release
 
 on:
