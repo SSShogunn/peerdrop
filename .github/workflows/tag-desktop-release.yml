@@ -1,0 +1,46 @@
+name: Tag desktop release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - client/src-tauri/tauri.conf.json
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check whether the version field changed
+        id: check
+        run: |
+          if git diff HEAD^ HEAD -- client/src-tauri/tauri.conf.json | grep -qE '^[+-]\s*"version"'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Read version
+        if: steps.check.outputs.changed == 'true'
+        id: version
+        run: echo "value=$(jq -r .version client/src-tauri/tauri.conf.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          TAG="desktop-v${{ steps.version.outputs.value }}"
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
+            echo "Tag $TAG already exists, skipping."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"

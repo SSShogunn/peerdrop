@@ -8,6 +8,9 @@ import { VitePWA } from 'vite-plugin-pwa'
 export default defineConfig({
   server: {
     allowedHosts: true,
+    watch: {
+      ignored: ['**/src-tauri/**'],
+    },
   },
   resolve: {
     alias: {

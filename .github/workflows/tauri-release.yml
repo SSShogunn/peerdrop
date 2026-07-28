@@ -62,6 +62,9 @@ jobs:
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_SIGNALING_SERVER: ${{ secrets.VITE_SIGNALING_SERVER }}
+          VITE_ICE_SERVERS: ${{ secrets.VITE_ICE_SERVERS }}
+          VITE_CHUNK_SIZE: ${{ secrets.VITE_CHUNK_SIZE }}
         with:
           projectPath: client
           tagName: desktop-v__VERSION__
