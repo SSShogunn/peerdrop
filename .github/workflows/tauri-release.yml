@@ -5,6 +5,7 @@ on:
     tags:
       - "desktop-v*"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: write
@@ -69,6 +70,6 @@ jobs:
           projectPath: client
           tagName: desktop-v__VERSION__
           releaseName: "PeerDrop Desktop v__VERSION__"
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
