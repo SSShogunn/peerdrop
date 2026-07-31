@@ -80,6 +80,28 @@ export interface TextMessage {
     text: string
 }
 
+export type SpeedTestPhase = "up" | "down"
+
+export interface SpeedTestStart {
+    type: "speedtest_start"
+    id: string
+    phase: SpeedTestPhase
+    totalBytes: number
+}
+
+export interface SpeedTestEnd {
+    type: "speedtest_end"
+    id: string
+    phase: SpeedTestPhase
+}
+
+export interface SpeedTestReport {
+    type: "speedtest_report"
+    id: string
+    phase: SpeedTestPhase
+    bytesPerSec: number
+}
+
 export type DataChannelMessage =
     | TransferRequest
     | TransferAccept
@@ -89,6 +111,14 @@ export type DataChannelMessage =
     | TransferAck
     | TransferCancel
     | TextMessage
+    | SpeedTestStart
+    | SpeedTestEnd
+    | SpeedTestReport
+
+export interface SpeedTestResult {
+    upBytesPerSec: number | null
+    downBytesPerSec: number | null
+}
 
 export type QueueItemStatus =
     | "pending"
@@ -168,6 +198,11 @@ export interface PeerContextValue {
 
     messages: TextEntry[]
     sendText: (text: string) => void
+
+    pingMs: number | null
+    speedTestRunning: boolean
+    speedTestResult: SpeedTestResult | null
+    runSpeedTest: () => void
 
     reset: () => void
     createRoom: () => void

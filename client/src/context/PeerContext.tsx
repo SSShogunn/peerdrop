@@ -17,6 +17,8 @@ import {
   type ReceivedFile,
   type SessionSummary,
   type SignalingMessage,
+  type SpeedTestPhase,
+  type SpeedTestResult,
   type TextEntry,
   type TransferMeta,
 } from "../types";
@@ -29,6 +31,9 @@ const MAX_ICE_RESTART_ATTEMPTS = 3;
 const MAX_WS_RECONNECT_ATTEMPTS = 3;
 const SPEED_SAMPLE_INTERVAL_MS = 250;
 const MAX_TEXT_LENGTH = 10_000;
+const SPEEDTEST_PAYLOAD_BYTES = 8 * 1024 * 1024;
+const SPEEDTEST_TIMEOUT_MS = 30_000;
+const PING_INTERVAL_MS = 3000;
 
 type SignalingAction =
   | { type: "create_room" }
@@ -132,6 +137,63 @@ async function detectConnectionType(pc: RTCPeerConnection): Promise<ConnectionTy
 
 const noop = () => {};
 
+function sendSpeedTestPayload(
+  channel: RTCDataChannel,
+  id: string,
+  phase: SpeedTestPhase,
+  totalBytes: number,
+  chunkSize: number,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try {
+      channel.send(JSON.stringify({ type: "speedtest_start", id, phase, totalBytes }));
+    } catch (err) {
+      reject(err as Error);
+      return;
+    }
+
+    const fullChunk = new Uint8Array(chunkSize);
+    crypto.getRandomValues(fullChunk);
+    let sent = 0;
+
+    const sendNext = () => {
+      if (sent >= totalBytes) {
+        try {
+          channel.send(JSON.stringify({ type: "speedtest_end", id, phase }));
+        } catch (err) {
+          reject(err as Error);
+          return;
+        }
+        resolve();
+        return;
+      }
+
+      const size = Math.min(chunkSize, totalBytes - sent);
+      const payload = size === chunkSize ? fullChunk.buffer : fullChunk.buffer.slice(0, size);
+
+      try {
+        channel.send(payload);
+      } catch (err) {
+        reject(err as Error);
+        return;
+      }
+      sent += size;
+
+      if (channel.bufferedAmount > chunkSize * 8) {
+        channel.onbufferedamountlow = () => {
+          channel.onbufferedamountlow = null;
+          sendNext();
+        };
+        channel.bufferedAmountLowThreshold = chunkSize * 4;
+      } else {
+        sendNext();
+      }
+    };
+
+    sendNext();
+  });
+}
+
 interface PeerProviderProps {
   children: ReactNode;
 }
@@ -169,6 +231,17 @@ export function PeerProvider({ children }: PeerProviderProps) {
   const resumeFnRef = useRef<(() => void) | null>(null);
   const cancelledRef = useRef<Set<string>>(new Set());
 
+  const speedTestRecvRef = useRef<{
+    active: boolean;
+    id: string;
+    phase: SpeedTestPhase;
+    bytes: number;
+    startTime: number;
+    totalBytes: number;
+  }>({ active: false, id: "", phase: "up", bytes: 0, startTime: 0, totalBytes: 0 });
+  const speedTestRunningRef = useRef(false);
+  const speedTestTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [status, setStatus] = useState<ConnectionStatus>("idle");
   const [roomCode, setRoomCode] = useState<string>("");
   const [role, setRole] = useState<PeerRole>(null);
@@ -192,6 +265,10 @@ export function PeerProvider({ children }: PeerProviderProps) {
   const [receivedFiles, setReceivedFiles] = useState<ReceivedFile[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<IncomingRequest[]>([]);
   const [messages, setMessages] = useState<TextEntry[]>([]);
+
+  const [pingMs, setPingMs] = useState<number | null>(null);
+  const [speedTestRunning, setSpeedTestRunning] = useState(false);
+  const [speedTestResult, setSpeedTestResult] = useState<SpeedTestResult | null>(null);
 
   const canStreamToDisk =
     typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
@@ -464,6 +541,53 @@ export function PeerProvider({ children }: PeerProviderProps) {
       if (typeof data === "string") {
         const msg: DataChannelMessage = JSON.parse(data);
 
+        if (msg.type === "speedtest_start") {
+          speedTestRecvRef.current = {
+            active: true,
+            id: msg.id,
+            phase: msg.phase,
+            bytes: 0,
+            startTime: performance.now(),
+            totalBytes: msg.totalBytes,
+          };
+          return;
+        }
+
+        if (msg.type === "speedtest_end") {
+          const rt = speedTestRecvRef.current;
+          if (!rt.active || rt.id !== msg.id) return;
+          rt.active = false;
+
+          const elapsed = performance.now() - rt.startTime;
+          const bytesPerSec = elapsed > 0 ? Math.round((rt.bytes / elapsed) * 1000) : 0;
+
+          try {
+            channel.send(JSON.stringify({ type: "speedtest_report", id: msg.id, phase: msg.phase, bytesPerSec }));
+          } catch {
+            noop();
+          }
+
+          if (msg.phase === "down") {
+            setSpeedTestResult((prev) => ({ upBytesPerSec: prev?.upBytesPerSec ?? null, downBytesPerSec: bytesPerSec }));
+            setSpeedTestRunning(false);
+            speedTestRunningRef.current = false;
+            if (speedTestTimeoutRef.current) {
+              clearTimeout(speedTestTimeoutRef.current);
+              speedTestTimeoutRef.current = null;
+            }
+          } else {
+            sendSpeedTestPayload(channel, msg.id, "down", rt.totalBytes, CHUNK_SIZE).catch(noop);
+          }
+          return;
+        }
+
+        if (msg.type === "speedtest_report") {
+          if (msg.phase === "up") {
+            setSpeedTestResult((prev) => ({ upBytesPerSec: msg.bytesPerSec, downBytesPerSec: prev?.downBytesPerSec ?? null }));
+          }
+          return;
+        }
+
         if (msg.type === "text") {
           setMessages((prev) => [
             ...prev,
@@ -543,6 +667,13 @@ export function PeerProvider({ children }: PeerProviderProps) {
         }
         return;
       }
+
+      const rt = speedTestRecvRef.current;
+      if (rt.active) {
+        rt.bytes += (data as ArrayBuffer).byteLength;
+        return;
+      }
+
       await handleChunk(data);
     };
 
@@ -597,6 +728,32 @@ export function PeerProvider({ children }: PeerProviderProps) {
     }
 
     setMessages((prev) => [...prev, { id, text: trimmed, direction: "sent", at: Date.now() }]);
+  }, []);
+
+  const runSpeedTest = useCallback(() => {
+    const channel = channelRef.current;
+    if (!channel || channel.readyState !== "open") return;
+    if (speedTestRunningRef.current || processingRef.current || incomingMetaRef.current) return;
+
+    speedTestRunningRef.current = true;
+    setSpeedTestRunning(true);
+    setSpeedTestResult(null);
+
+    const id = crypto.randomUUID();
+
+    speedTestTimeoutRef.current = setTimeout(() => {
+      speedTestRunningRef.current = false;
+      setSpeedTestRunning(false);
+    }, SPEEDTEST_TIMEOUT_MS);
+
+    sendSpeedTestPayload(channel, id, "up", SPEEDTEST_PAYLOAD_BYTES, CHUNK_SIZE).catch(() => {
+      speedTestRunningRef.current = false;
+      setSpeedTestRunning(false);
+      if (speedTestTimeoutRef.current) {
+        clearTimeout(speedTestTimeoutRef.current);
+        speedTestTimeoutRef.current = null;
+      }
+    });
   }, []);
 
   const chooseSaveFolder = useCallback(async () => {
@@ -656,6 +813,16 @@ export function PeerProvider({ children }: PeerProviderProps) {
     pausedRef.current = false;
     resumeFnRef.current = null;
     cancelledRef.current.clear();
+
+    speedTestRecvRef.current = { active: false, id: "", phase: "up", bytes: 0, startTime: 0, totalBytes: 0 };
+    speedTestRunningRef.current = false;
+    if (speedTestTimeoutRef.current) {
+      clearTimeout(speedTestTimeoutRef.current);
+      speedTestTimeoutRef.current = null;
+    }
+    setSpeedTestRunning(false);
+    setSpeedTestResult(null);
+    setPingMs(null);
 
     intentionalCloseRef.current = true;
     lastActionRef.current = null;
@@ -1095,6 +1262,46 @@ export function PeerProvider({ children }: PeerProviderProps) {
     };
   }, [status]);
 
+  useEffect(() => {
+    if (status !== "p2p_connected") return;
+
+    let cancelled = false;
+
+    const poll = async () => {
+      const pc = pcRef.current;
+      if (!pc) return;
+
+      try {
+        const stats = await pc.getStats();
+        let rtt: number | null = null;
+
+        stats.forEach((report) => {
+          if (
+            report.type === "candidate-pair" &&
+            (report.selected || (report.nominated && report.state === "succeeded")) &&
+            typeof report.currentRoundTripTime === "number"
+          ) {
+            rtt = report.currentRoundTripTime;
+          }
+        });
+
+        if (!cancelled && rtt !== null) {
+          setPingMs(Math.round(rtt * 1000));
+        }
+      } catch {
+        noop();
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, PING_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [status]);
+
   const value: PeerContextValue = {
     status,
     roomCode,
@@ -1122,6 +1329,10 @@ export function PeerProvider({ children }: PeerProviderProps) {
     declineRequest,
     messages,
     sendText,
+    pingMs,
+    speedTestRunning,
+    speedTestResult,
+    runSpeedTest,
     reset,
     createRoom,
     joinRoom,
