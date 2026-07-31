@@ -1,6 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { isTauri } from "@tauri-apps/api/core";
 import { PeerProvider } from "@/context/PeerContext";
 import { usePeer } from "@/context/usePeer";
 import { AppHeader } from "@/components/AppHeader";
@@ -12,8 +11,12 @@ import Room from "@/components/screens/Room";
 import Interrupted from "@/components/screens/Interrupted";
 import Ended from "@/components/screens/Ended";
 
+function isDesktop() {
+  return typeof (window as unknown as { runtime?: unknown }).runtime !== "undefined";
+}
+
 function hasAppEntry() {
-  if (isTauri()) return true;
+  if (isDesktop()) return true;
   const params = new URLSearchParams(window.location.search);
   return window.location.pathname === "/app" || !!params.get("room");
 }
