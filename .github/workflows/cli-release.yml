@@ -45,6 +45,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.23"
+          cache-dependency-path: native/cli/go.sum
 
       - name: Build
         working-directory: native/cli
