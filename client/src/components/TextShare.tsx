@@ -1,4 +1,4 @@
-import { useState, type ClipboardEvent, type KeyboardEvent } from "react";
+import { useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Copy, Send } from "lucide-react";
 import { usePeer } from "@/context/usePeer";
@@ -49,14 +49,25 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+const MAX_TEXTAREA_HEIGHT = 120;
+
 export default function TextShare() {
   const { messages, sendText, queueFiles } = usePeer();
   const [draft, setDraft] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const resizeTextarea = (el: HTMLTextAreaElement) => {
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
+  };
 
   const handleSend = () => {
     if (!draft.trim()) return;
     sendText(draft);
     setDraft("");
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "";
+    }
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -81,18 +92,22 @@ export default function TextShare() {
     <div className="flex flex-col gap-3">
       <div className="flex items-end gap-2">
         <textarea
+          ref={textareaRef}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            resizeTextarea(e.target);
+          }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder="Send a text or link… (paste an image to send it as a file)"
+          placeholder="Send a text or link…"
           rows={1}
           maxLength={10000}
-          className="h-10 flex-1 resize-none bg-transparent px-2.5 py-2 text-sm outline-none ring-1 ring-foreground/10 placeholder:text-muted-foreground focus-visible:ring-ring"
+          className="max-h-30 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 text-sm break-words outline-none ring-1 ring-foreground/10 placeholder:text-muted-foreground focus-visible:ring-ring scrollbar-thin [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-foreground/15 [&::-webkit-scrollbar-track]:bg-transparent"
         />
         <Button
           size="icon"
-          className="h-10 w-10"
+          className="h-10 w-10 shrink-0"
           disabled={!draft.trim()}
           onClick={handleSend}
           aria-label="Send text"
@@ -114,11 +129,11 @@ export default function TextShare() {
                 transition={{ duration: 0.2 }}
                 className={
                   msg.direction === "sent"
-                    ? "flex items-start gap-2 self-end bg-primary/10 px-3 py-2 text-sm"
-                    : "flex items-start gap-2 self-start bg-card px-3 py-2 text-sm ring-1 ring-foreground/10"
+                    ? "flex max-w-[85%] items-center gap-2 self-end bg-primary/10 px-3 py-2 text-sm"
+                    : "flex max-w-[85%] items-center gap-2 self-start bg-card px-3 py-2 text-sm ring-1 ring-foreground/10"
                 }
               >
-                <span className="min-w-0 break-words whitespace-pre-wrap">
+                <span className="min-w-0 flex-1 break-words whitespace-pre-wrap">
                   <Linkified text={msg.text} />
                 </span>
                 <CopyButton text={msg.text} />

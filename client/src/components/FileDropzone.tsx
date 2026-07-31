@@ -1,9 +1,9 @@
 import { useState, useRef, type DragEvent } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence } from "motion/react";
 import { AlertTriangle, X } from "lucide-react";
 import { usePeer } from "@/context/usePeer";
-import { formatBytes, getFileIcon } from "@/lib/file";
 import { Badge } from "@/components/ui/badge";
+import { FileRow } from "@/components/FileRow";
 import { cn } from "@/lib/utils";
 
 const LARGE_FILE_THRESHOLD = 500 * 1024 * 1024;
@@ -95,39 +95,28 @@ export default function FileDropzone() {
         <ul className="flex flex-col gap-2">
           <AnimatePresence initial={false}>
             {queue.map((item) => (
-              <motion.li
+              <FileRow
                 key={item.id}
-                layout
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="flex items-center gap-3 bg-card px-4 py-2.5 ring-1 ring-foreground/10"
-              >
-                <span className="text-lg">
-                  {getFileIcon(item.fileName, item.fileType)}
-                </span>
-                <div className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-sm font-medium">
-                    {item.fileName}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {formatBytes(item.fileSize)}
-                  </span>
-                </div>
-                <Badge variant={STATUS_VARIANT[item.status] ?? "outline"}>
-                  {STATUS_LABEL[item.status] ?? item.status}
-                </Badge>
-                {(item.status === "pending" || item.status === "queued" || item.status === "sending") && (
-                  <button
-                    onClick={() => cancelTransfer(item.id)}
-                    aria-label={`Cancel ${item.fileName}`}
-                    className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center text-muted-foreground hover:text-destructive"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
-              </motion.li>
+                fileName={item.fileName}
+                fileSize={item.fileSize}
+                fileType={item.fileType}
+                trailing={
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Badge variant={STATUS_VARIANT[item.status] ?? "outline"}>
+                      {STATUS_LABEL[item.status] ?? item.status}
+                    </Badge>
+                    {(item.status === "pending" || item.status === "queued" || item.status === "sending") && (
+                      <button
+                        onClick={() => cancelTransfer(item.id)}
+                        aria-label={`Cancel ${item.fileName}`}
+                        className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center text-muted-foreground hover:text-destructive"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                }
+              />
             ))}
           </AnimatePresence>
         </ul>

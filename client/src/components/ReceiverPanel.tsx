@@ -1,8 +1,8 @@
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence } from "motion/react";
 import { AlertTriangle, Check, FolderOpen, HardDrive } from "lucide-react";
 import { usePeer } from "@/context/usePeer";
-import { formatBytes, getFileIcon } from "@/lib/file";
 import { Button } from "@/components/ui/button";
+import { FileRow } from "@/components/FileRow";
 
 export default function ReceiverPanel() {
   const { canStreamToDisk, saveFolder, chooseSaveFolder, receivedFiles } = usePeer();
@@ -14,7 +14,7 @@ export default function ReceiverPanel() {
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <HardDrive className="h-4 w-4 shrink-0" />
             {saveFolder ? (
-              <span>
+              <span className="min-w-0 truncate" title={saveFolder}>
                 Saving to{" "}
                 <span className="font-semibold text-foreground">{saveFolder}</span>
               </span>
@@ -46,28 +46,15 @@ export default function ReceiverPanel() {
           <ul className="flex flex-col gap-2">
             <AnimatePresence initial={false}>
               {receivedFiles.map((file) => (
-                <motion.li
+                <FileRow
                   key={file.id}
-                  layout
-                  initial={{ opacity: 0, y: -8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="flex items-center gap-3 bg-card px-4 py-2.5 ring-1 ring-foreground/10"
-                >
-                  <span className="text-lg">
-                    {getFileIcon(file.fileName, file.fileType)}
-                  </span>
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-sm font-medium">
-                      {file.fileName}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {formatBytes(file.fileSize)}
-                    </span>
-                  </div>
-                  <Check className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                </motion.li>
+                  fileName={file.fileName}
+                  fileSize={file.fileSize}
+                  fileType={file.fileType}
+                  trailing={
+                    <Check className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  }
+                />
               ))}
             </AnimatePresence>
           </ul>

@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { PeerProvider } from "@/context/PeerContext";
 import { usePeer } from "@/context/usePeer";
 import { AppHeader } from "@/components/AppHeader";
+import { cn } from "@/lib/utils";
 import Landing from "@/components/screens/Landing";
 import Home from "@/components/screens/Home";
 import Hosting from "@/components/screens/Hosting";
@@ -23,12 +24,19 @@ function hasAppEntry() {
 
 export type Intent = "create" | "join" | null;
 
-function Shell({ children }: { children: ReactNode }) {
+function Shell({ children, wide }: { children: ReactNode; wide?: boolean }) {
   return (
     <div className="flex min-h-dvh w-full flex-col">
       <AppHeader />
       <main className="flex flex-1 items-center justify-center px-4 pb-10 sm:px-6">
-        <div className="flex w-full max-w-sm flex-col gap-6">{children}</div>
+        <div
+          className={cn(
+            "flex w-full flex-col gap-6 transition-[max-width] duration-200",
+            wide ? "max-w-sm md:max-w-lg" : "max-w-sm",
+          )}
+        >
+          {children}
+        </div>
       </main>
     </div>
   );
@@ -66,6 +74,7 @@ function AppInner() {
 
   let key: string;
   let screen: ReactNode;
+  const wide = status === "p2p_connected";
 
   if (status === "idle") {
     key = "home";
@@ -88,7 +97,7 @@ function AppInner() {
   }
 
   return (
-    <Shell>
+    <Shell wide={wide}>
       <AnimatePresence mode="wait">
         <motion.div
           key={key}

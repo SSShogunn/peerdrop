@@ -8,7 +8,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { usePeer } from "@/context/usePeer";
-import { formatBytes, getFileIcon } from "@/lib/file";
+import { formatBytes } from "@/lib/file";
+import { FileRow } from "@/components/FileRow";
 
 export default function IncomingRequestSheet() {
   const { incomingRequests, acceptRequest, declineRequest } = usePeer();
@@ -31,26 +32,13 @@ export default function IncomingRequestSheet() {
 
           <ul className="flex max-h-48 flex-col gap-2 overflow-y-auto">
             {request.files.map((file) => (
-              <li
+              <FileRow
                 key={file.id}
-                className="flex items-center gap-3 bg-card px-3 py-2 ring-1 ring-foreground/10"
-              >
-                {file.previewDataUrl ? (
-                  <img
-                    src={file.previewDataUrl}
-                    alt=""
-                    className="h-8 w-8 shrink-0 object-cover"
-                  />
-                ) : (
-                  <span className="text-lg">{getFileIcon(file.fileName, file.fileType)}</span>
-                )}
-                <div className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-sm font-medium">{file.fileName}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {formatBytes(file.fileSize)}
-                  </span>
-                </div>
-              </li>
+                fileName={file.fileName}
+                fileSize={file.fileSize}
+                fileType={file.fileType}
+                previewDataUrl={file.previewDataUrl}
+              />
             ))}
           </ul>
 
