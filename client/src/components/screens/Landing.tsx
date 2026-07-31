@@ -1,9 +1,16 @@
-import { motion, useScroll } from "motion/react";
+import { useRef, useState } from "react";
+import { motion, useMotionValueEvent, useScroll } from "motion/react";
 import { Gauge, Globe2, Layers3, ShieldOff } from "lucide-react";
 import QRCode from "react-qr-code";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
+import { PeerLink } from "@/components/landing/PeerLink";
+import { SplitText } from "@/components/landing/SplitText";
+import { Magnetic } from "@/components/landing/Magnetic";
+import { SpotlightCard } from "@/components/landing/SpotlightCard";
+import { TiltCard } from "@/components/landing/TiltCard";
+import { cn } from "@/lib/utils";
 
 function ScrollProgress() {
   const { scrollYProgress } = useScroll();
@@ -29,8 +36,22 @@ interface LandingProps {
 }
 
 function Nav({ onOpenApp }: LandingProps) {
+  const { scrollY } = useScroll();
+  const [scrolled, setScrolled] = useState(false);
+
+  useMotionValueEvent(scrollY, "change", (latest) => {
+    setScrolled(latest > 8);
+  });
+
   return (
-    <header className="relative z-10 flex w-full items-center justify-between px-6 py-6 lg:px-12">
+    <header
+      className={cn(
+        "sticky top-0 z-40 flex w-full items-center justify-between px-6 py-4 transition-colors duration-300 lg:px-12",
+        scrolled
+          ? "border-b border-border bg-background/75 backdrop-blur-md"
+          : "border-b border-transparent bg-transparent",
+      )}
+    >
       <Logo />
       <div className="flex items-center gap-3">
         <ThemeToggle />
@@ -59,7 +80,7 @@ function HeroBackdrop() {
 
 function Hero({ onOpenApp }: LandingProps) {
   return (
-    <section className="relative w-full overflow-hidden px-6 pt-12 pb-20 lg:px-12">
+    <section className="relative w-full overflow-hidden px-6 pt-12 pb-16 lg:px-12">
       <HeroBackdrop />
 
       <div className="mx-auto flex max-w-2xl flex-col items-center gap-8 text-center">
@@ -73,21 +94,16 @@ function Hero({ onOpenApp }: LandingProps) {
           peer to peer · zero server storage
         </motion.span>
 
-        <motion.h1
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.05 }}
-          className="font-heading text-5xl font-bold tracking-tight sm:text-6xl"
-        >
-          Drop it here.
+        <h1 className="font-heading text-5xl font-bold tracking-tight sm:text-6xl">
+          <SplitText text="Drop it here." delay={0.15} />
           <br />
-          It shows up there.
-        </motion.h1>
+          <SplitText text="It shows up there." delay={0.35} />
+        </h1>
 
         <motion.p
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
+          transition={{ duration: 0.5, delay: 0.55 }}
           className="max-w-md text-base leading-relaxed text-muted-foreground"
         >
           PeerDrop opens a direct WebRTC connection between two browsers.
@@ -96,13 +112,24 @@ function Hero({ onOpenApp }: LandingProps) {
         </motion.p>
 
         <motion.div
+          initial={{ opacity: 0, scale: 0.94 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.6, delay: 0.65, ease: "easeOut" }}
+          className="w-full"
+        >
+          <PeerLink />
+        </motion.div>
+
+        <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.15 }}
+          transition={{ duration: 0.5, delay: 0.75 }}
         >
-          <Button size="lg" className="h-14 px-8 text-base" onClick={onOpenApp}>
-            Open app
-          </Button>
+          <Magnetic>
+            <Button size="lg" className="h-14 px-8 text-base" onClick={onOpenApp}>
+              Open app
+            </Button>
+          </Magnetic>
         </motion.div>
       </div>
     </section>
@@ -133,27 +160,30 @@ function PreviewMockup() {
       viewport={{ once: true, margin: "-80px" }}
       transition={{ duration: 0.55, ease: "easeOut" }}
       className="flex justify-center"
+      style={{ perspective: 800 }}
     >
-      <BrowserChrome>
-        <p className="text-xs text-muted-foreground">
-          Share this code with the receiver
-        </p>
-        <div className="mt-3 bg-muted py-5 text-center font-heading text-4xl font-bold tracking-[0.35rem] ring-1 ring-foreground/10">
-          X7QP
-        </div>
-        <div className="mt-4 flex items-center gap-4">
-          <div className="bg-white p-1.5">
-            <QRCode value="https://peerdrop.sshogunn.org/?room=X7QP" size={68} />
+      <TiltCard>
+        <BrowserChrome>
+          <p className="text-xs text-muted-foreground">
+            Share this code with the receiver
+          </p>
+          <div className="mt-3 bg-muted py-5 text-center font-heading text-4xl font-bold tracking-[0.35rem] ring-1 ring-foreground/10">
+            X7QP
           </div>
-          <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1.5">
-              <LiveDot />
-              waiting for peer...
-            </span>
-            <span>scan to join from another device</span>
+          <div className="mt-4 flex items-center gap-4">
+            <div className="bg-white p-1.5">
+              <QRCode value="https://peerdrop.sshogunn.org/?room=X7QP" size={68} />
+            </div>
+            <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <LiveDot />
+                waiting for peer...
+              </span>
+              <span>scan to join from another device</span>
+            </div>
           </div>
-        </div>
-      </BrowserChrome>
+        </BrowserChrome>
+      </TiltCard>
     </motion.div>
   );
 }
@@ -218,13 +248,14 @@ function Features() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: "-60px" }}
             transition={{ duration: 0.4, delay: i * 0.08 }}
-            className="flex flex-col gap-3 bg-card p-6 ring-1 ring-foreground/10"
           >
-            <feature.icon className="h-5 w-5 text-emerald-500" strokeWidth={1.6} />
-            <h3 className="text-sm font-semibold">{feature.title}</h3>
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              {feature.body}
-            </p>
+            <SpotlightCard className="flex h-full flex-col gap-3 bg-card p-6 ring-1 ring-foreground/10">
+              <feature.icon className="h-5 w-5 text-emerald-500" strokeWidth={1.6} />
+              <h3 className="text-sm font-semibold">{feature.title}</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {feature.body}
+              </p>
+            </SpotlightCard>
           </motion.div>
         ))}
       </div>
@@ -239,25 +270,40 @@ const STEPS = [
 ];
 
 function HowItWorks() {
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({
+    target: sectionRef,
+    offset: ["start 75%", "end 60%"],
+  });
+
   return (
-    <section className="relative w-full px-6 py-20 lg:px-12">
-      <div className="mx-auto flex max-w-5xl flex-col gap-10 sm:flex-row sm:gap-6">
-        {STEPS.map((step, i) => (
+    <section ref={sectionRef} className="relative w-full px-6 py-20 lg:px-12">
+      <div className="mx-auto max-w-5xl">
+        <div className="relative mb-10 hidden h-px bg-border sm:block">
           <motion.div
-            key={step.n}
-            initial={{ opacity: 0, y: 24 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-60px" }}
-            transition={{ duration: 0.45, delay: i * 0.12 }}
-            className="flex-1"
-          >
-            <span className="font-mono text-xs text-muted-foreground">{step.n}</span>
-            <h3 className="mt-2 text-base font-semibold">{step.title}</h3>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              {step.body}
-            </p>
-          </motion.div>
-        ))}
+            className="absolute inset-y-0 left-0 h-px w-full origin-left bg-emerald-500"
+            style={{ scaleX: scrollYProgress }}
+          />
+        </div>
+
+        <div className="flex flex-col gap-10 sm:flex-row sm:gap-6">
+          {STEPS.map((step, i) => (
+            <motion.div
+              key={step.n}
+              initial={{ opacity: 0, y: 24 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-60px" }}
+              transition={{ duration: 0.45, delay: i * 0.12 }}
+              className="flex-1"
+            >
+              <span className="font-mono text-xs text-muted-foreground">{step.n}</span>
+              <h3 className="mt-2 text-base font-semibold">{step.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                {step.body}
+              </p>
+            </motion.div>
+          ))}
+        </div>
       </div>
     </section>
   );

@@ -19,6 +19,7 @@
     "@base-ui/react": "^1.6.0",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@phosphor-icons/react": "^2.1.10",
+    "animejs": "^4.5.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "hash-wasm": "^4.12.0",
