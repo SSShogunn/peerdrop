@@ -1,0 +1,8 @@
+{
+  "name": "peerdrop-desktop-frontend",
+  "private": true,
+  "description": "Wrapper that builds the real client/ Vite app and copies its output here for Wails to embed. There is no separate frontend source in this directory.",
+  "scripts": {
+    "build": "node build.mjs"
+  }
+}

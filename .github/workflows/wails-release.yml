@@ -17,19 +17,26 @@ jobs:
       matrix:
         include:
           - platform: ubuntu-22.04
-            args: ""
+            asset: PeerDrop-linux-amd64
           - platform: windows-latest
-            args: ""
+            asset: PeerDrop-windows-amd64.exe
 
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read version and compute tag
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(tr -d '[:space:]' < native/desktop/VERSION)
+          echo "tag=desktop-v${VERSION}" >> "$GITHUB_OUTPUT"
+
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf build-essential libssl-dev libxdo-dev curl wget file
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev build-essential pkg-config
 
       - uses: pnpm/action-setup@v4
         with:
@@ -51,25 +58,35 @@ jobs:
         with:
           node-version: 22
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v5
         with:
-          workspaces: client/src-tauri
+          go-version: "1.23"
 
-      - run: pnpm install --frozen-lockfile
-        working-directory: client
+      - name: Install wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
-      - uses: tauri-apps/tauri-action@v1
+      - name: Build
+        working-directory: native/desktop
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VITE_SIGNALING_SERVER: ${{ secrets.VITE_SIGNALING_SERVER }}
           VITE_ICE_SERVERS: ${{ secrets.VITE_ICE_SERVERS }}
           VITE_CHUNK_SIZE: ${{ secrets.VITE_CHUNK_SIZE }}
+        run: wails build
+
+      - name: Rename binary (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: mv native/desktop/build/bin/PeerDrop native/desktop/build/bin/${{ matrix.asset }}
+
+      - name: Rename binary (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: mv native/desktop/build/bin/PeerDrop.exe native/desktop/build/bin/${{ matrix.asset }}
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
         with:
-          projectPath: client
-          tagName: desktop-v__VERSION__
-          releaseName: "PeerDrop Desktop v__VERSION__"
-          releaseDraft: false
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "PeerDrop Desktop ${{ steps.version.outputs.tag }}"
+          draft: false
           prerelease: false
-          args: ${{ matrix.args }}
+          files: native/desktop/build/bin/${{ matrix.asset }}

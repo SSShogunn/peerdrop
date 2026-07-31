@@ -1,0 +1,60 @@
+name: Tag CLI release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - native/cli/VERSION
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check whether the version file changed
+        id: check
+        run: |
+          if git diff HEAD^ HEAD -- native/cli/VERSION | grep -qE '^[+-]'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Read version
+        if: steps.check.outputs.changed == 'true'
+        id: version
+        run: echo "value=$(cat native/cli/VERSION | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        if: steps.check.outputs.changed == 'true'
+        id: push_tag
+        run: |
+          TAG="cli-v${{ steps.version.outputs.value }}"
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
+            echo "Tag $TAG already exists, skipping."
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+    outputs:
+      should_build: ${{ steps.push_tag.outputs.pushed }}
+
+  build:
+    needs: tag
+    if: needs.tag.outputs.should_build == 'true'
+    uses: ./.github/workflows/cli-release.yml
+    secrets: inherit
+    permissions:
+      contents: write

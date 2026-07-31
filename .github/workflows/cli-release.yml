@@ -1,0 +1,64 @@
+name: CLI release
+
+on:
+  push:
+    tags:
+      - "cli-v*"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            asset: peerdrop-linux-amd64
+          - goos: linux
+            goarch: arm64
+            asset: peerdrop-linux-arm64
+          - goos: darwin
+            goarch: amd64
+            asset: peerdrop-darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            asset: peerdrop-darwin-arm64
+          - goos: windows
+            goarch: amd64
+            asset: peerdrop-windows-amd64.exe
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version and compute tag
+        id: version
+        run: |
+          VERSION=$(tr -d '[:space:]' < native/cli/VERSION)
+          echo "tag=cli-v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: Build
+        working-directory: native/cli
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -o ../../${{ matrix.asset }} .
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "PeerDrop CLI ${{ steps.version.outputs.tag }}"
+          draft: false
+          prerelease: false
+          files: ${{ matrix.asset }}

@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - client/src-tauri/tauri.conf.json
+      - native/desktop/VERSION
 
 permissions:
   contents: write
@@ -18,10 +18,10 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Check whether the version field changed
+      - name: Check whether the version file changed
         id: check
         run: |
-          if git diff HEAD^ HEAD -- client/src-tauri/tauri.conf.json | grep -qE '^[+-]\s*"version"'; then
+          if git diff HEAD^ HEAD -- native/desktop/VERSION | grep -qE '^[+-]'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -30,7 +30,7 @@ jobs:
       - name: Read version
         if: steps.check.outputs.changed == 'true'
         id: version
-        run: echo "value=$(jq -r .version client/src-tauri/tauri.conf.json)" >> "$GITHUB_OUTPUT"
+        run: echo "value=$(cat native/desktop/VERSION | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
 
       - name: Create and push tag
         if: steps.check.outputs.changed == 'true'
@@ -54,7 +54,7 @@ jobs:
   build:
     needs: tag
     if: needs.tag.outputs.should_build == 'true'
-    uses: ./.github/workflows/tauri-release.yml
+    uses: ./.github/workflows/wails-release.yml
     secrets: inherit
     permissions:
       contents: write
