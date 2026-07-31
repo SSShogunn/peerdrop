@@ -21,4 +21,11 @@ wails dev
 ```
 
 Config knobs (`VITE_SIGNALING_SERVER`, `VITE_ICE_SERVERS`, etc.) come from
-`client/.env` same as the web build.
+`client/.env` same as the web build. Also set `VITE_PUBLIC_APP_URL` (e.g.
+`https://peerdrop.sshogunn.org/app`) so invite links/QR codes point at the
+real domain instead of the webview's internal `wails.localhost` origin.
+
+## Note on releases
+
+Release builds aren't code-signed, so Windows SmartScreen will warn that the
+publisher is unknown. Click **More info → Run anyway** to launch.

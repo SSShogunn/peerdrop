@@ -72,6 +72,7 @@ jobs:
           VITE_SIGNALING_SERVER: ${{ secrets.VITE_SIGNALING_SERVER }}
           VITE_ICE_SERVERS: ${{ secrets.VITE_ICE_SERVERS }}
           VITE_CHUNK_SIZE: ${{ secrets.VITE_CHUNK_SIZE }}
+          VITE_PUBLIC_APP_URL: ${{ secrets.VITE_PUBLIC_APP_URL }}
         run: wails build
 
       - name: Rename binary (Linux)
@@ -88,6 +89,9 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: "PeerDrop Desktop ${{ steps.version.outputs.tag }}"
+          body: |
+            Windows may show a SmartScreen warning ("Windows protected your PC") since this
+            build isn't code-signed. Click **More info → Run anyway** to launch it.
           draft: false
           prerelease: false
           files: native/desktop/build/bin/${{ matrix.asset }}

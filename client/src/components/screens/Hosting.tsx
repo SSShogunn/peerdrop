@@ -4,6 +4,7 @@ import { Check, Copy, Loader2 } from "lucide-react";
 import QRCode from "react-qr-code";
 import { Button } from "@/components/ui/button";
 import { usePeer } from "@/context/usePeer";
+import { getInviteUrl } from "@/lib/inviteUrl";
 
 function Spinner() {
   return (
@@ -21,8 +22,7 @@ function CopyLinkButton({ roomCode }: { roomCode: string }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    const link = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
-    await navigator.clipboard.writeText(link);
+    await navigator.clipboard.writeText(getInviteUrl(roomCode));
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -57,7 +57,7 @@ export default function Hosting() {
     );
   }
 
-  const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
+  const inviteUrl = getInviteUrl(roomCode);
 
   return (
     <div className="flex flex-col gap-4">
