@@ -10,7 +10,16 @@ your data.
 
 [**peerdrop.sshogunn.org →**](https://peerdrop.sshogunn.org/)
 
+![CI](https://img.shields.io/github/actions/workflow/status/SSShogunn/peerdrop/tag-cli-release.yml?branch=main&label=CLI%20release)
+![CI](https://img.shields.io/github/actions/workflow/status/SSShogunn/peerdrop/tag-desktop-release.yml?branch=main&label=Desktop%20release)
+![License](https://img.shields.io/badge/license-all%20rights%20reserved-lightgrey)
+
 </div>
+
+<p align="center">
+  <img src="docs/screenshots/hero-dark.png" width="49%" alt="PeerDrop landing page, dark mode" />
+  <img src="docs/screenshots/hero-light.png" width="49%" alt="PeerDrop landing page, light mode" />
+</p>
 
 ---
 
@@ -48,16 +57,45 @@ picture entirely.
 - **Works across networks, not just the same LAN** — STUN handles the
   common case; a Cloudflare TURN relay (short-lived credentials minted
   server-side) kicks in automatically when direct connection fails, e.g.
-  behind strict corporate NAT or on cellular.
-  A **Direct / Relayed** badge tells you which one you got.
+  behind strict corporate NAT or on cellular. A **Direct / Relayed** badge
+  tells you which one you got — right next to a live ping reading.
+- **Built-in speed test** — measure real duplex throughput between the
+  two connected devices with one click, no third-party service involved.
 - **Instant text & links** — a lightweight clipboard-style channel for
   sharing a snippet or URL without wrapping it in a file, complete with
   auto-linkification.
-- **Installable PWA** — add it to your home screen and it launches like a
-  native app, offline-capable shell included.
+- **Installable PWA, desktop app, or CLI** — use it in the browser, add it
+  to your home screen, run the native Wails desktop build, or drive it
+  from a terminal — all three speak the same protocol and can send/receive
+  with each other interchangeably.
 - **Resilient** — reconnects automatically on a dropped signaling socket
   or a failed ICE path, holds the screen awake during an active session,
   and recovers fast when you switch back to the tab.
+
+## In action
+
+<table>
+<tr>
+<td width="50%">
+
+**Consent before anything transfers**
+
+<img src="docs/screenshots/incoming-request.png" alt="Incoming file request dialog" />
+
+</td>
+<td width="50%">
+
+**A connected session — ping, speed test, chat, files**
+
+<img src="docs/screenshots/room-received.png" alt="Connected room with received file" />
+
+</td>
+</tr>
+</table>
+
+<p align="center">
+  <img src="docs/screenshots/features.png" width="80%" alt="Feature grid and how-it-works steps" />
+</p>
 
 ## How it works
 
@@ -79,28 +117,73 @@ picture entirely.
    send now goes: request → the other side accepts/declines → chunked,
    hashed transfer → integrity check → done.
 
+## Get PeerDrop
+
+PeerDrop ships three ways — a browser app, a native desktop app, and a CLI
+— all speaking the exact same protocol, so a terminal on a server can send
+a file straight to someone's browser tab.
+
+### Web app
+
+Nothing to install — open **[peerdrop.sshogunn.org](https://peerdrop.sshogunn.org/)**.
+Installable as a PWA (add to home screen) for an app-like, offline-capable
+shell.
+
+### Desktop (Windows / Linux)
+
+A native [Wails](https://wails.io) build of the same UI. Download the
+latest `desktop-v*` asset from the
+**[Releases page](https://github.com/SSShogunn/peerdrop/releases)**.
+
+> Builds aren't code-signed, so Windows SmartScreen will warn about an
+> unknown publisher — click **More info → Run anyway**.
+
+### CLI (Windows / Linux / macOS)
+
+A Go binary for sending and receiving from a terminal — handy for servers,
+scripts, or headless machines. Download the `cli-v*` asset for your
+platform from the **[Releases page](https://github.com/SSShogunn/peerdrop/releases)**,
+then:
+
+```bash
+chmod +x peerdrop-*        # Linux/macOS only
+./peerdrop send file1.txt file2.png     # creates a room, prints a code
+./peerdrop receive ABCD --out ./downloads   # joins a room, saves files there
+```
+
+`peerdrop receive -y` skips the accept prompt; `peerdrop --help` lists
+every flag (chunk size, custom signaling/STUN servers, etc). Full details
+in [`native/cli/README.md`](native/cli/README.md).
+
 ## Tech stack
 
 | | |
 |---|---|
-| **Client** | React 19 · TypeScript · Vite · Tailwind CSS v4 · shadcn/ui (Base UI) · `hash-wasm` · `vite-plugin-pwa` |
+| **Web client** | React 19 · TypeScript · Vite · Tailwind CSS v4 · shadcn/ui (Base UI) · Motion · anime.js · `hash-wasm` · `vite-plugin-pwa` |
+| **Desktop** | [Wails](https://wails.io) (Go) wrapping the same React client |
+| **CLI** | Go, sharing a `peerdrop-core` WebRTC/protocol module with the desktop app |
 | **Server** | FastAPI · WebSockets · Uvicorn · Python 3.12 · [`uv`](https://docs.astral.sh/uv/) |
 | **Transport** | WebRTC (`RTCDataChannel`), STUN, Cloudflare TURN (Realtime) |
 | **Deploy** | Docker (multi-stage, nginx-served frontend), Cloudflare Tunnel |
-| **CI** | GitHub Actions (lint + typecheck + build) |
+| **CI** | GitHub Actions (lint + typecheck + build, cross-platform CLI/desktop releases) |
 
 ## Project layout
 
 ```
 peerdrop/
-├── client/                  React + Vite frontend
+├── client/                  React + Vite web frontend (also embedded in desktop)
 │   └── src/
-│       ├── components/      UI (screens/, ui/ primitives, transfer widgets)
+│       ├── components/      UI (screens/, landing/, ui/ primitives, transfer widgets)
 │       ├── context/         PeerContext — signaling + WebRTC + transfer state
 │       ├── lib/              formatting/icon helpers
 │       └── types/            shared protocol & UI types
 ├── server/                  FastAPI signaling server
 │   └── main.py              rooms, relay, rate limiting, TURN credentials
+├── native/
+│   ├── peerdrop-core/       Go WebRTC + protocol module shared by cli/ and desktop/
+│   ├── cli/                 terminal client (`peerdrop send` / `peerdrop receive`)
+│   └── desktop/              Wails app embedding client/'s build output
+├── docs/screenshots/         README assets
 ├── Dockerfile.frontend       multi-stage build → nginx
 ├── Dockerfile.backend        prod backend image
 ├── docker-compose.yml        frontend + backend + cloudflared
@@ -118,7 +201,7 @@ uv sync
 uv run uvicorn main:app --reload
 ```
 
-**Client** (separate terminal)
+**Web client** (separate terminal)
 ```bash
 cd client
 pnpm install
@@ -128,6 +211,19 @@ pnpm dev
 
 Open two browser windows/tabs at the printed Vite URL — create a room in
 one, join with the code in the other.
+
+**CLI**
+```bash
+cd native/cli
+go build -o peerdrop .
+./peerdrop send some-file.txt
+```
+
+**Desktop**
+```bash
+cd native/desktop
+wails dev
+```
 
 ### Configuration
 
