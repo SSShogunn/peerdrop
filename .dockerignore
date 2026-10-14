@@ -14,11 +14,14 @@ client/dist-ssr
 # Tauri (desktop app) Rust build artifacts — not needed for docker builds
 client/src-tauri/target
 
-# Secrets / local env (root .env only — client/.env has no secrets, it's
-# public client-side config that Vite must read at build time)
+# Secrets / local env. client/.env is excluded too: image config is supplied
+# at runtime (PEERDROP_* variables), so one image works on any domain.
 .env
 .env.*
 !.env.example
+client/.env
+client/.env.*
+!client/.env.example
 
 # VCS / editor / OS
 .git

@@ -45,3 +45,10 @@ pnpm-debug.log*
 
 # Local planning docs
 ENHANCEMENTS.md
+
+# Production deployment (kept local)
+docker-compose.yml
+Dockerfile.frontend
+nginx.conf
+docker/
+DEPLOY.md

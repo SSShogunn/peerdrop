@@ -1,7 +1,8 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_SIGNALING_SERVER: string;
+  readonly VITE_SIGNALING_SERVER?: string;
+  readonly VITE_PUBLIC_APP_URL?: string;
   readonly VITE_ICE_SERVERS: string;
   readonly VITE_TURN_URL: string;
   readonly VITE_TURN_USERNAME: string;

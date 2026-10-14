@@ -5,9 +5,15 @@ import babel from '@rolldown/plugin-babel'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+const backend = process.env.VITE_DEV_BACKEND || 'http://localhost:8000'
+
 export default defineConfig({
   server: {
     allowedHosts: true,
+    proxy: {
+      '/ws': { target: backend, ws: true },
+      '/turn-credentials': backend,
+    },
   },
   resolve: {
     alias: {
@@ -37,6 +43,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        globIgnores: ['config.js'],
       },
       devOptions: {
         enabled: true,

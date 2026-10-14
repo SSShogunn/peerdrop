@@ -164,7 +164,7 @@ in [`native/cli/README.md`](native/cli/README.md).
 | **CLI** | Go, sharing a `peerdrop-core` WebRTC/protocol module with the desktop app |
 | **Server** | FastAPI · WebSockets · Uvicorn · Python 3.12 · [`uv`](https://docs.astral.sh/uv/) |
 | **Transport** | WebRTC (`RTCDataChannel`), STUN, Cloudflare TURN (Realtime) |
-| **Deploy** | Docker (multi-stage, nginx-served frontend), Cloudflare Tunnel |
+| **Dev environment** | Docker Compose (Vite with hot reload + FastAPI) |
 | **CI** | GitHub Actions (lint + typecheck + build, cross-platform CLI/desktop releases) |
 
 ## Project layout
@@ -184,10 +184,8 @@ peerdrop/
 │   ├── cli/                 terminal client (`peerdrop send` / `peerdrop receive`)
 │   └── desktop/              Wails app embedding client/'s build output
 ├── docs/screenshots/         README assets
-├── Dockerfile.frontend       multi-stage build → nginx
-├── Dockerfile.backend        prod backend image
-├── docker-compose.yml        frontend + backend + cloudflared
-└── nginx.conf
+├── Dockerfile.backend        backend image
+└── docker-compose.dev.yml    dev stack: Vite + backend
 ```
 
 ## Running it locally
@@ -234,22 +232,15 @@ default; the server only *needs* a `CF_TURN_KEY_ID`/`CF_TURN_API_TOKEN`
 pair if you want a TURN relay fallback, and the client only needs
 `VITE_SIGNALING_SERVER` pointed at your server.
 
-## Deploying
-
-The included `docker-compose.yml` builds a production image for both
-services (nginx-served static frontend, non-reloading backend) and wires
-in a Cloudflare Tunnel:
+## Docker dev stack
 
 ```bash
-docker compose up -d --build
+docker compose -f docker-compose.dev.yml up -d
 ```
 
-No ports are published to the host — `frontend` and `backend` are only
-reachable inside the compose network, with `cloudflared` as the sole
-entry point from the internet.
-
-See [`DEPLOY.md`](DEPLOY.md) for the redeploy command, the Cloudflare
-Tunnel ingress config, and two gotchas already hit once.
+Starts the backend on `:8000` and the Vite dev server on `:5173` with hot
+reload. Vite proxies `/ws` and `/turn-credentials` to the backend, so the
+client needs no `.env` to talk to it.
 
 ## Server API surface
 

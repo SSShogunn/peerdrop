@@ -24,9 +24,10 @@ import {
 } from "../types";
 import { PeerContext } from "./peer-context-instance";
 import { createImagePreview } from "../lib/thumbnail";
+import { config } from "../lib/config";
 
-const SIGNALING_SERVER = import.meta.env.VITE_SIGNALING_SERVER;
-const CHUNK_SIZE = Number(import.meta.env.VITE_CHUNK_SIZE) * 1024 || 16 * 1024;
+const SIGNALING_SERVER = config.signalingServer;
+const CHUNK_SIZE = config.chunkSizeBytes;
 const MAX_ICE_RESTART_ATTEMPTS = 3;
 const MAX_WS_RECONNECT_ATTEMPTS = 3;
 const SPEED_SAMPLE_INTERVAL_MS = 250;
@@ -42,7 +43,7 @@ type SignalingAction =
 function buildIceServers(): RTCIceServer[] {
   const servers: RTCIceServer[] = [];
 
-  const stunUrls = (import.meta.env.VITE_ICE_SERVERS || "")
+  const stunUrls = config.iceServers
     .split(",")
     .map((url) => url.trim())
     .filter(Boolean);
@@ -50,24 +51,22 @@ function buildIceServers(): RTCIceServer[] {
     servers.push({ urls: stunUrls });
   }
 
-  const turnUrls = (import.meta.env.VITE_TURN_URL || "")
+  const turnUrls = config.turnUrl
     .split(",")
     .map((url) => url.trim())
     .filter(Boolean);
   if (turnUrls.length > 0) {
     servers.push({
       urls: turnUrls,
-      username: import.meta.env.VITE_TURN_USERNAME || undefined,
-      credential: import.meta.env.VITE_TURN_CREDENTIAL || undefined,
+      username: config.turnUsername || undefined,
+      credential: config.turnCredential || undefined,
     });
   }
 
   return servers;
 }
 
-const TURN_CREDENTIALS_URL =
-  SIGNALING_SERVER.replace(/^ws/, "http").replace(/\/ws\/?$/, "") +
-  "/turn-credentials";
+const TURN_CREDENTIALS_URL = config.turnCredentialsUrl;
 
 let cachedIceServers: RTCIceServer[] | null = null;
 

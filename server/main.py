@@ -1,5 +1,8 @@
 import asyncio
+import base64
 import contextlib
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -66,6 +69,9 @@ CLEANUP_INTERVAL = _env_int("ROOM_CLEANUP_INTERVAL", 60)
 CF_TURN_KEY_ID = os.environ.get("CF_TURN_KEY_ID", "")
 CF_TURN_API_TOKEN = os.environ.get("CF_TURN_API_TOKEN", "")
 TURN_CREDENTIAL_TTL = _env_int("TURN_CREDENTIAL_TTL", 86400)
+TURN_URLS = _env_list("TURN_URLS", "")
+TURN_SECRET = os.environ.get("TURN_SECRET", "")
+TRUST_PROXY = os.environ.get("TRUST_PROXY", "").lower() in ("1", "true", "yes")
 
 
 START_TIME = time.time()
@@ -91,6 +97,14 @@ def get_other_peer(room: dict, sender: WebSocket):
     if room["peer_a"] == sender:
         return room["peer_b"]
     return room["peer_a"]
+
+
+def _client_ip(websocket: WebSocket) -> str:
+    if TRUST_PROXY:
+        forwarded = websocket.headers.get("cf-connecting-ip") or websocket.headers.get("x-real-ip")
+        if forwarded:
+            return forwarded.strip()
+    return websocket.client.host if websocket.client else "unknown"
 
 
 def _is_disconnected(ws: WebSocket | None) -> bool:
@@ -265,7 +279,7 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     log_event("client_connected")
 
-    ip = websocket.client.host if websocket.client else "unknown"
+    ip = _client_ip(websocket)
 
     try:
         while True:
@@ -310,6 +324,17 @@ async def get():
 
 @app.get("/turn-credentials")
 async def turn_credentials():
+    if TURN_URLS and TURN_SECRET:
+        username = str(int(time.time()) + TURN_CREDENTIAL_TTL)
+        digest = hmac.new(TURN_SECRET.encode(), username.encode(), hashlib.sha1).digest()
+        return {
+            "iceServers": {
+                "urls": TURN_URLS,
+                "username": username,
+                "credential": base64.b64encode(digest).decode(),
+            }
+        }
+
     if not CF_TURN_KEY_ID or not CF_TURN_API_TOKEN:
         return {"iceServers": []}
 
