@@ -17,6 +17,14 @@ your data.
 </div>
 
 <p align="center">
+  <a href="docs/media/peerdrop-demo.mp4">
+    <img src="docs/media/peerdrop-demo-poster.jpg" width="100%" alt="PeerDrop demo video: open a room, enter the 4-character code on the other device, drop a file, and it arrives" />
+  </a>
+  <br />
+  <sub><a href="docs/media/peerdrop-demo.mp4">▶ Watch the 20-second demo</a></sub>
+</p>
+
+<p align="center">
   <img src="docs/screenshots/hero-dark.png" width="49%" alt="PeerDrop landing page, dark mode" />
   <img src="docs/screenshots/hero-light.png" width="49%" alt="PeerDrop landing page, light mode" />
 </p>
@@ -183,7 +191,8 @@ peerdrop/
 │   ├── peerdrop-core/       Go WebRTC + protocol module shared by cli/ and desktop/
 │   ├── cli/                 terminal client (`peerdrop send` / `peerdrop receive`)
 │   └── desktop/              Wails app embedding client/'s build output
-├── docs/screenshots/         README assets
+├── docs/screenshots/         README screenshots
+├── docs/media/               demo video and poster
 ├── Dockerfile.backend        backend image
 └── docker-compose.dev.yml    dev stack: Vite + backend
 ```
