@@ -52,3 +52,6 @@ Dockerfile.frontend
 nginx.conf
 docker/
 DEPLOY.md
+
+# Tauri build output
+client/src-tauri/
