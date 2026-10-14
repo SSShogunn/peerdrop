@@ -3,37 +3,34 @@ import { usePeer } from "@/context/usePeer";
 import { Button } from "@/components/ui/button";
 import { formatSpeed } from "@/lib/file";
 
+function Readout({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-border bg-background px-3 py-2">
+      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        {icon}
+        {label}
+      </span>
+      <span className="data text-sm font-medium">{value}</span>
+    </div>
+  );
+}
+
 export default function SpeedTest() {
   const { speedTestRunning, speedTestResult, runSpeedTest, sendFileName, recvFileName } = usePeer();
   const disabled = speedTestRunning || !!sendFileName || !!recvFileName;
 
+  const up = speedTestResult?.upBytesPerSec != null ? formatSpeed(speedTestResult.upBytesPerSec) : "—";
+  const down = speedTestResult?.downBytesPerSec != null ? formatSpeed(speedTestResult.downBytesPerSec) : "—";
+
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 bg-card px-3 py-2 text-xs ring-1 ring-foreground/10">
-      <div className="flex min-w-0 flex-1 items-center gap-3 text-muted-foreground">
-        {speedTestRunning ? (
-          <span>Measuring throughput…</span>
-        ) : speedTestResult ? (
-          <>
-            <span className="flex items-center gap-1">
-              <ArrowUp className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
-              {speedTestResult.upBytesPerSec != null ? formatSpeed(speedTestResult.upBytesPerSec) : "…"}
-            </span>
-            <span className="flex items-center gap-1">
-              <ArrowDown className="h-3 w-3 shrink-0 text-sky-600 dark:text-sky-400" />
-              {speedTestResult.downBytesPerSec != null ? formatSpeed(speedTestResult.downBytesPerSec) : "…"}
-            </span>
-          </>
-        ) : (
-          <span>Measure throughput between devices</span>
-        )}
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-2 gap-2">
+        <Readout label="Upload" value={speedTestRunning ? "…" : up} icon={<ArrowUp className="size-3.5 text-signal" />} />
+        <Readout label="Download" value={speedTestRunning ? "…" : down} icon={<ArrowDown className="size-3.5 text-signal" />} />
       </div>
-      <Button variant="outline" size="sm" onClick={runSpeedTest} disabled={disabled} className="shrink-0">
-        {speedTestRunning ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <Gauge className="h-3.5 w-3.5" />
-        )}
-        Speed test
+      <Button variant="outline" className="h-11 w-full gap-2" onClick={runSpeedTest} disabled={disabled}>
+        {speedTestRunning ? <Loader2 className="size-4 animate-spin" /> : <Gauge className="size-4" />}
+        {speedTestRunning ? "Measuring…" : "Run speed test"}
       </Button>
     </div>
   );

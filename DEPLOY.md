@@ -1,7 +1,16 @@
 # Deployment notes
 
-Production is Docker-only (`docker-compose.yml`) — dev is run manually
-(`pnpm dev` / `uv run uvicorn`, see [README](README.md)). The two never mix.
+Production is Docker-only (`docker-compose.yml`), started with `docker compose up -d`.
+
+Dev mode runs the same stack with a hot-reloading Vite frontend on `:5173`, the
+backend on `:8000`, and no tunnel:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+```
+
+To make dev the default for a shell or `.env`, set
+`COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml`; unset it for prod.
 
 ## Redeploying after a change
 

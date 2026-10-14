@@ -1,6 +1,9 @@
 import { useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { motion } from "motion/react";
 import { CheckCircle2, UserMinus, X } from "lucide-react";
+import { ArrowRight, Infinity as InfinityIcon, LockKey, Plus, Prohibit } from "@phosphor-icons/react";
+import { Notice, Panel } from "@/components/Panel";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { usePeer } from "@/context/usePeer";
@@ -81,75 +84,109 @@ export default function Home({ onIntent }: HomeProps) {
   };
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       {lastSessionSummary && (
-        <div className="flex items-center gap-2 bg-card p-3 text-xs ring-1 ring-foreground/10">
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-          <span className="flex-1 text-muted-foreground">{summaryLine(lastSessionSummary)}</span>
-          <button
-            onClick={dismissSessionSummary}
-            aria-label="Dismiss"
-            className="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        <Notice
+          tone="ok"
+          icon={<CheckCircle2 />}
+          action={
+            <button
+              onClick={dismissSessionSummary}
+              aria-label="Dismiss"
+              className="-m-2 flex size-11 shrink-0 cursor-pointer items-center justify-center opacity-70 hover:opacity-100"
+            >
+              <X className="size-4" />
+            </button>
+          }
+        >
+          <span className="data text-xs">{summaryLine(lastSessionSummary)}</span>
+        </Notice>
       )}
 
       {disconnectReason === "peer_left" && (
-        <div className="flex items-center gap-2 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
-          <UserMinus className="h-4 w-4 shrink-0" />
-          <span className="flex-1">Your peer disconnected.</span>
-          <button
-            onClick={dismissDisconnectReason}
-            aria-label="Dismiss"
-            className="shrink-0 cursor-pointer text-amber-600/70 hover:text-amber-600 dark:text-amber-400/70 dark:hover:text-amber-400"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        <Notice
+          icon={<UserMinus />}
+          action={
+            <button
+              onClick={dismissDisconnectReason}
+              aria-label="Dismiss"
+              className="-m-2 flex size-11 shrink-0 cursor-pointer items-center justify-center opacity-70 hover:opacity-100"
+            >
+              <X className="size-4" />
+            </button>
+          }
+        >
+          Your peer disconnected.
+        </Notice>
       )}
 
-      <div className="flex flex-col items-center gap-2 text-center">
-        <h1 className="font-heading text-2xl font-bold tracking-tight">
-          Send files, peer to peer
+      <div className="flex flex-col gap-2">
+        <h1 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
+          Send anything, straight to the other device.
         </h1>
-        <p className="text-sm text-muted-foreground">
-          No uploads, no accounts — files move directly between browsers.
+        <p className="text-pretty text-muted-foreground">
+          Open a room, share the code, drop files. Nothing is uploaded or stored on a server.
         </p>
       </div>
 
-      <Button size="lg" className="h-14 w-full text-base" onClick={handleCreate}>
-        Create a room
-      </Button>
-
-      <div className="flex items-center gap-3 text-xs tracking-wider text-muted-foreground uppercase">
-        <div className="h-px flex-1 bg-border" />
-        or join
-        <div className="h-px flex-1 bg-border" />
-      </div>
-
-      <motion.div
-        animate={shake ? { x: [0, -8, 8, -6, 6, 0] } : { x: 0 }}
-        transition={{ duration: 0.35 }}
-        className="flex flex-col gap-3"
-      >
-        <Input
-          type="text"
-          inputMode="text"
-          autoComplete="off"
-          autoCapitalize="characters"
-          placeholder="Enter room code"
-          value={code}
-          maxLength={4}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          className="h-14 text-center text-2xl font-semibold tracking-[0.4em] placeholder:text-sm placeholder:font-normal placeholder:tracking-normal"
-        />
-        <Button variant="outline" size="lg" className="h-12 w-full" onClick={() => handleJoin()}>
-          Join room
+      <Panel title="Send">
+        <Button size="lg" className="h-12 w-full gap-2 text-base" onClick={handleCreate}>
+          <Plus className="size-5" weight="bold" /> Create a room
         </Button>
-      </motion.div>
+      </Panel>
+
+      <Panel title="Receive" meta="4-character code">
+        <motion.div
+          animate={shake ? { x: [0, -8, 8, -6, 6, 0] } : { x: 0 }}
+          transition={{ duration: 0.35 }}
+          className="flex flex-col gap-3"
+        >
+          <label className="group relative block">
+            <span className="sr-only">Room code</span>
+            <div className="grid grid-cols-4 gap-2" aria-hidden>
+              {[0, 1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "data flex h-16 items-center justify-center rounded-md border border-input bg-background text-3xl font-semibold transition-colors",
+                    "group-focus-within:border-ring",
+                    code.length === i && "group-focus-within:ring-2 group-focus-within:ring-ring/40",
+                  )}
+                >
+                  {code[i] ?? <span className="text-muted-foreground/40">·</span>}
+                </div>
+              ))}
+            </div>
+            <Input
+              type="text"
+              inputMode="text"
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              value={code}
+              maxLength={4}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              className="absolute inset-0 h-full cursor-text border-0 bg-transparent! text-transparent caret-transparent opacity-0 focus-visible:ring-0"
+            />
+          </label>
+          <Button
+            variant="outline"
+            size="lg"
+            className="h-11 w-full gap-2"
+            disabled={code.length !== 4}
+            onClick={() => handleJoin()}
+          >
+            Join room <ArrowRight className="size-4" />
+          </Button>
+        </motion.div>
+      </Panel>
+
+      <ul className="data flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
+        <li className="flex items-center gap-1.5"><LockKey className="size-3.5" /> Encrypted peer-to-peer</li>
+        <li className="flex items-center gap-1.5"><Prohibit className="size-3.5" /> No accounts</li>
+        <li className="flex items-center gap-1.5"><InfinityIcon className="size-3.5" /> Nothing stored</li>
+      </ul>
     </div>
   );
 }

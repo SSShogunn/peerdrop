@@ -1,5 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Panel } from "@/components/Panel";
 import { usePeer } from "@/context/usePeer";
 
 function errorCopy(reason: string | null): string {
@@ -23,12 +24,16 @@ export default function Ended() {
   const { errorReason, reset } = usePeer();
 
   return (
-    <div className="flex flex-col items-center gap-4 py-12 text-center">
-      <AlertTriangle className="h-6 w-6 text-destructive" />
-      <p className="text-sm text-destructive">{errorCopy(errorReason)}</p>
-      <Button size="lg" className="w-full" onClick={reset}>
-        Start over
-      </Button>
-    </div>
+    <Panel>
+      <div className="flex flex-col items-center gap-4 py-6 text-center">
+        <span className="flex size-12 items-center justify-center rounded-md bg-destructive/10 text-destructive">
+          <AlertTriangle className="size-6" />
+        </span>
+        <p className="max-w-xs text-pretty">{errorCopy(errorReason)}</p>
+        <Button size="lg" className="h-11 w-full" onClick={reset}>
+          Start over
+        </Button>
+      </div>
+    </Panel>
   );
 }

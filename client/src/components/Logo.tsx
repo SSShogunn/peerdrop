@@ -14,7 +14,7 @@ export function Logo() {
           strokeDasharray="2.2 2.2"
         />
       </svg>
-      <span className="font-heading text-sm font-semibold tracking-tight">PeerDrop</span>
+      <span className="text-sm font-semibold tracking-tight">PeerDrop</span>
     </div>
   );
 }

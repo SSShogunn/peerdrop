@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { PeerProvider } from "@/context/PeerContext";
 import { usePeer } from "@/context/usePeer";
+import { Toaster } from "@/components/ui/sonner";
 import { AppHeader } from "@/components/AppHeader";
 import { cn } from "@/lib/utils";
 import Landing from "@/components/screens/Landing";
@@ -25,19 +26,26 @@ function hasAppEntry() {
 export type Intent = "create" | "join" | null;
 
 function Shell({ children, wide }: { children: ReactNode; wide?: boolean }) {
+  useEffect(() => {
+    document.body.classList.add("pd-app");
+    return () => document.body.classList.remove("pd-app");
+  }, []);
+
   return (
-    <div className="flex min-h-dvh w-full flex-col">
+    <div className="relative flex min-h-dvh w-full flex-col">
+      <div aria-hidden className="grid-bg pointer-events-none absolute inset-x-0 top-0 h-[28rem]" />
       <AppHeader />
-      <main className="flex flex-1 items-center justify-center px-4 pb-10 sm:px-6">
+      <main className="relative flex flex-1 justify-center px-4 py-8 sm:px-6 sm:py-12">
         <div
           className={cn(
-            "flex w-full flex-col gap-6 transition-[max-width] duration-200",
-            wide ? "max-w-sm md:max-w-lg" : "max-w-sm",
+            "flex w-full flex-col gap-6 transition-[max-width] duration-300",
+            wide ? "max-w-5xl" : "max-w-md",
           )}
         >
           {children}
         </div>
       </main>
+      <Toaster position="bottom-center" />
     </div>
   );
 }

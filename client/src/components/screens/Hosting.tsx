@@ -2,42 +2,30 @@ import { useState } from "react";
 import { motion } from "motion/react";
 import { Check, Copy, Loader2 } from "lucide-react";
 import QRCode from "react-qr-code";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { LiveDot, Panel } from "@/components/Panel";
 import { usePeer } from "@/context/usePeer";
 import { getInviteUrl } from "@/lib/inviteUrl";
-
-function Spinner() {
-  return (
-    <motion.span
-      animate={{ rotate: 360 }}
-      transition={{ duration: 0.9, repeat: Infinity, ease: "linear" }}
-      className="flex"
-    >
-      <Loader2 className="h-4 w-4" strokeWidth={2} />
-    </motion.span>
-  );
-}
 
 function CopyLinkButton({ roomCode }: { roomCode: string }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(getInviteUrl(roomCode));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    try {
+      await navigator.clipboard.writeText(getInviteUrl(roomCode));
+      setCopied(true);
+      toast.success("Invite link copied");
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error("Couldn't access the clipboard");
+    }
   };
 
   return (
-    <Button variant="outline" size="lg" className="w-full" onClick={handleCopy}>
-      {copied ? (
-        <>
-          <Check className="h-4 w-4" /> Copied
-        </>
-      ) : (
-        <>
-          <Copy className="h-4 w-4" /> Copy invite link
-        </>
-      )}
+    <Button variant="outline" size="lg" className="h-11 w-full gap-2" onClick={handleCopy}>
+      {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+      {copied ? "Copied" : "Copy invite link"}
     </Button>
   );
 }
@@ -47,55 +35,68 @@ export default function Hosting() {
 
   if (!roomCode) {
     return (
-      <div className="flex flex-col items-center gap-3 py-16 text-center">
-        <Spinner />
-        <p className="text-sm text-muted-foreground">Creating room…</p>
-        <Button variant="ghost" onClick={reset}>
-          Cancel
-        </Button>
-      </div>
+      <Panel>
+        <div className="flex flex-col items-center gap-3 py-8 text-center">
+          <Loader2 className="size-5 animate-spin text-signal" />
+          <p className="text-sm text-muted-foreground">Opening a room…</p>
+          <Button variant="ghost" className="h-11 px-4" onClick={reset}>
+            Cancel
+          </Button>
+        </div>
+      </Panel>
     );
   }
 
   const inviteUrl = getInviteUrl(roomCode);
+  const joined = status === "peer_joined";
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-center text-sm text-muted-foreground">
-        Share this code with the receiver
-      </p>
-
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ type: "spring", stiffness: 260, damping: 22 }}
-        className="bg-card py-6 text-center font-heading text-5xl font-bold tracking-[0.5rem] ring-1 ring-foreground/10"
+      <Panel
+        title="Room ready"
+        meta={
+          <>
+            <LiveDot />
+            {joined ? "peer joined" : "listening"}
+          </>
+        }
       >
-        {roomCode}
-      </motion.div>
+        <div className="flex flex-col gap-5">
+          <div className="grid grid-cols-4 gap-2" aria-label={`Room code ${roomCode.split("").join(" ")}`}>
+            {roomCode.split("").map((ch, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.06, duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                className="data flex h-20 items-center justify-center rounded-md border border-border bg-background text-4xl font-semibold sm:h-24 sm:text-5xl"
+              >
+                {ch}
+              </motion.div>
+            ))}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Enter this code on the other device, or scan the QR code.
+          </p>
+          <CopyLinkButton roomCode={roomCode} />
+        </div>
+      </Panel>
 
-      <CopyLinkButton roomCode={roomCode} />
+      <Panel>
+        <div className="flex items-center gap-4">
+          <div className="shrink-0 rounded-md bg-white p-2.5 ring-1 ring-border">
+            <QRCode value={inviteUrl} size={112} />
+          </div>
+          <div className="flex min-w-0 flex-col gap-1">
+            <p className="text-sm font-medium">
+              {joined ? "Establishing connection…" : "Waiting for them to join"}
+            </p>
+            <p className="data truncate text-xs text-muted-foreground">{inviteUrl.replace(/^https?:\/\//, "")}</p>
+          </div>
+        </div>
+      </Panel>
 
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.15 }}
-        className="flex justify-center bg-white p-4 ring-1 ring-foreground/10"
-      >
-        <QRCode value={inviteUrl} size={160} />
-      </motion.div>
-      <p className="text-center text-xs text-muted-foreground">
-        Scan to open this room on another device
-      </p>
-
-      <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-        <Spinner />
-        {status === "peer_joined"
-          ? "Peer joined. Establishing connection…"
-          : "Waiting for them to join…"}
-      </div>
-
-      <Button variant="ghost" onClick={reset}>
+      <Button variant="ghost" className="h-11" onClick={reset}>
         Cancel
       </Button>
     </div>

@@ -20,17 +20,20 @@ export default function IncomingRequestSheet() {
   return (
     <Dialog open={!!request}>
       {request && (
-        <DialogContent showCloseButton={false}>
+        <DialogContent
+          showCloseButton={false}
+          className="top-auto bottom-0 max-w-full translate-y-0 rounded-t-lg rounded-b-none border border-border p-5 text-sm sm:top-1/2 sm:bottom-auto sm:max-w-md sm:-translate-y-1/2 sm:rounded-lg"
+        >
           <DialogHeader>
-            <DialogTitle>
+            <DialogTitle className="text-base font-semibold">
               Incoming {request.files.length === 1 ? "file" : `${request.files.length} files`}
             </DialogTitle>
             <DialogDescription>
-              {formatBytes(totalSize)} total — accept to start receiving.
+              <span className="data">{formatBytes(totalSize)}</span> in total. Accept to start receiving.
             </DialogDescription>
           </DialogHeader>
 
-          <ul className="flex max-h-48 flex-col gap-2 overflow-y-auto">
+          <ul className="flex max-h-56 flex-col gap-2 overflow-y-auto">
             {request.files.map((file) => (
               <FileRow
                 key={file.id}
@@ -43,10 +46,12 @@ export default function IncomingRequestSheet() {
           </ul>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => declineRequest(request.batchId)}>
+            <Button variant="outline" className="h-11 sm:px-5" onClick={() => declineRequest(request.batchId)}>
               Decline
             </Button>
-            <Button onClick={() => acceptRequest(request.batchId)}>Accept</Button>
+            <Button className="h-11 sm:px-5" onClick={() => acceptRequest(request.batchId)}>
+              Accept
+            </Button>
           </DialogFooter>
         </DialogContent>
       )}
